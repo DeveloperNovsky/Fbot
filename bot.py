@@ -88,6 +88,12 @@ async def on_message(message):
     if message.channel.id not in ALLOWED_CHANNELS:
         return
 
+    # Ignore command messages
+    if message.content.startswith(bot.command_prefix):
+        await bot.process_commands(message)
+        return
+
+    # Process normal text messages for batch ticket addition
     if message.content:
         names = extract_names_from_text(message.content)
         if len(names) >= 2:
@@ -97,9 +103,6 @@ async def on_message(message):
             save_entries()
             summary = "\n".join(f"{name}: total {raffle_entries[name]}" for name in names)
             await message.channel.send(f"🎟️ **Raffle tickets added**:\n```{summary}```")
-            return
-
-    await bot.process_commands(message)
 
 # ================== COMMANDS ==================
 @bot.command()
@@ -169,18 +172,23 @@ async def entries(ctx):
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def restoreentries(ctx):
+    """Restore raffle entries from a text block."""
     if ctx.channel.id not in ALLOWED_CHANNELS:
         return
     restored = restore_entries_from_text(ctx.message.content)
     if not restored:
         await ctx.send("❌ No valid raffle entries found to restore.")
         return
+
     raffle_entries.clear()
     raffle_entries.update(restored)
     save_entries()
-    total = sum(restored.values())
-    summary = "\n".join(f"{name}: {count} ticket(s)" for name, count in restored.items())
-    await ctx.send(f"✅ **Raffle entries restored successfully** ({total} total tickets):\n```{summary}```")
+
+    total_tickets = sum(raffle_entries.values())
+    summary = "\n".join(f"{name}: {count} ticket(s)" for name, count in raffle_entries.items())
+    await ctx.send(
+        f"✅ **Raffle entries restored successfully** ({total_tickets} total tickets):\n```{summary}```"
+    )
 
 @bot.command()
 async def drawwinner(ctx):
@@ -204,4 +212,3 @@ async def reset(ctx):
 
 # ================== START ==================
 bot.run(DISCORD_TOKEN)
-
