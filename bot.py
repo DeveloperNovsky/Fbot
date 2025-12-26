@@ -59,6 +59,7 @@ def extract_names_from_text(content: str):
             names.append(name)
     return list(dict.fromkeys(names))
 
+# ================== IMPROVED RESTORE PARSER ==================
 def restore_entries_from_text(content: str):
     restored = {}
     for line in content.splitlines():
@@ -66,11 +67,13 @@ def restore_entries_from_text(content: str):
         if not line or ":" not in line or "Raffle Entries" in line:
             continue
         try:
-            name_part, count_part = line.split(":", 1)
-            name = name_part.strip()
-            count = int(count_part.strip().split(" ")[0])
+            # Split on the first colon for username
+            username, rest = line.split(":", 1)
+            username = username.strip()
+            # Extract first integer in the rest of the line as ticket count
+            count = int(next(word for word in rest.split() if word.isdigit()))
             if count > 0:
-                restored[name] = count
+                restored[username] = count
         except Exception:
             continue
     return restored
