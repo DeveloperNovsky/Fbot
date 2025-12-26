@@ -59,17 +59,6 @@ def remove_ticket(username, amount=1):
         return True
     return False
 
-def extract_names_from_text(content: str):
-    names = []
-    for line in content.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        name = line.split("|")[0].strip()
-        if len(name) >= 2:
-            names.append(name)
-    return list(dict.fromkeys(names))
-
 # ================== EVENTS ==================
 @bot.event
 async def on_ready():
@@ -264,29 +253,6 @@ async def reset(ctx):
     user_display_names.clear()
     save_entries()
     await ctx.send("✅ All raffle entries have been cleared.")
-
-@bot.command()
-async def pasteentries(ctx, *, content):
-    """
-    Add raffle tickets via pasted list.
-    Each line = 1 ticket.
-    """
-    global last_batch
-    if ctx.channel.id not in ALLOWED_CHANNELS:
-        return
-
-    names = extract_names_from_text(content)
-    if not names:
-        await ctx.send("❌ No valid names found in the pasted content.")
-        return
-
-    last_batch = [name.lower() for name in names]
-    for name in last_batch:
-        add_ticket(name, display_name=name)
-
-    save_entries()
-    summary = "\n".join(f"{user_display_names.get(name, name)}: total {raffle_entries[name]}" for name in last_batch)
-    await ctx.send(f"🎟️ **Raffle tickets added from paste:**\n```{summary}```")
 
 # ================== START ==================
 bot.run(DISCORD_TOKEN)
