@@ -20,8 +20,7 @@ RAFFLE_FILE = os.path.join(BASE_DIR, "raffle_entries.json")
 DEFAULT_TICKETS = 1
 
 # ================== CHANNEL RESTRICTION ==================
-# Add the IDs of channels where the bot is allowed to work
-ALLOWED_CHANNELS = [1033249948084477982]  # <-- Replace with your channel IDs
+ALLOWED_CHANNELS = [1033249948084477982]  # replace if needed
 
 # ================== DATA ==================
 
@@ -86,6 +85,31 @@ def extract_names_from_text(content: str):
 
     return list(dict.fromkeys(names))
 
+# ================== RESTORE PARSER ==================
+
+def restore_entries_from_text(content: str):
+    restored = {}
+
+    for line in content.splitlines():
+        line = line.strip()
+
+        if not line or ":" not in line:
+            continue
+        if "Raffle Entries" in line:
+            continue
+
+        try:
+            name_part, count_part = line.split(":", 1)
+            name = name_part.strip()
+            count = int(count_part.strip().split(" ")[0])
+
+            if count > 0:
+                restored[name] = count
+        except Exception:
+            continue
+
+    return restored
+
 # ================== EVENTS ==================
 
 @bot.event
@@ -99,7 +123,6 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
-    # Restrict processing to allowed channels
     if message.channel.id not in ALLOWED_CHANNELS:
         return
 
@@ -107,7 +130,7 @@ async def on_message(message):
         names = extract_names_from_text(message.content)
 
         if len(names) >= 2:
-            last_batch = names.copy()  # ✅ save batch
+            last_batch = names.copy()
 
             for name in names:
                 add_ticket(name)
@@ -148,7 +171,7 @@ async def removele(ctx):
             removed_summary.append(f"{name}: -1 ({status})")
 
     save_entries()
-    last_batch = []  # prevent double remove
+    last_batch = []
 
     await ctx.send(
         f"❌ **Removed 1 raffle ticket from last batch:**\n```"
@@ -173,6 +196,32 @@ async def entries(ctx):
 
     await ctx.send(
         f"**Raffle Entries ({total} total tickets):**\n```{summary}```"
+    )
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def restoreentries(ctx):
+    if ctx.channel.id not in ALLOWED_CHANNELS:
+        return
+
+    restored = restore_entries_from_text(ctx.message.content)
+
+    if not restored:
+        await ctx.send("❌ No valid raffle entries found to restore.")
+        return
+
+    raffle_entries.clear()
+    raffle_entries.update(restored)
+    save_entries()
+
+    total = sum(restored.values())
+    summary = "\n".join(
+        f"{name}: {count} ticket(s)"
+        for name, count in restored.items()
+    )
+
+    await ctx.send(
+        f"✅ **Raffle entries restored successfully** ({total} total tickets):\n```{summary}```"
     )
 
 @bot.command()
