@@ -151,6 +151,7 @@ async def on_message(message):
 
 # ================== COMMANDS ==================
 
+# Updated removele command
 @bot.command()
 async def removele(ctx):
     global last_batch
@@ -163,20 +164,59 @@ async def removele(ctx):
         return
 
     removed_summary = []
+    batch_counts = {}
 
+    # Count tickets per user in last_batch
     for name in last_batch:
+        batch_counts[name] = batch_counts.get(name, 0) + 1
+
+    # Remove tickets according to batch_counts
+    for name, count in batch_counts.items():
         if name in raffle_entries:
-            removed = remove_ticket(name)
-            status = "removed (now 0)" if removed else f"now {raffle_entries[name]}"
-            removed_summary.append(f"{name}: -1 ({status})")
+            raffle_entries[name] -= count
+            if raffle_entries[name] <= 0:
+                del raffle_entries[name]
+                status = "removed (now 0)"
+            else:
+                status = f"now {raffle_entries[name]}"
+            removed_summary.append(f"{name}: -{count} ({status})")
 
     save_entries()
     last_batch = []
 
     await ctx.send(
-        f"❌ **Removed 1 raffle ticket from last batch:**\n```"
+        f"❌ **Removed raffle tickets from last batch:**\n```"
         + "\n".join(removed_summary)
         + "```"
+    )
+
+@bot.command()
+async def addt(ctx, member: discord.Member, tickets: int):
+    """
+    Adds a specified number of raffle tickets to a member and tracks them as the last batch.
+    Usage: !addt @user 5
+    """
+    global last_batch
+
+    if ctx.channel.id not in ALLOWED_CHANNELS:
+        return
+
+    if tickets <= 0:
+        await ctx.send("❌ Number of tickets must be greater than 0.")
+        return
+
+    name = str(member)  # Discord username with discriminator
+
+    # Add tickets
+    raffle_entries[name] = raffle_entries.get(name, 0) + tickets
+    save_entries()
+
+    # Track in last_batch
+    last_batch = [name] * tickets  # Track each ticket individually
+
+    await ctx.send(
+        f"✅ Added **{tickets} ticket(s)** to **{name}**. "
+        f"Total tickets: **{raffle_entries[name]}**"
     )
 
 @bot.command()
