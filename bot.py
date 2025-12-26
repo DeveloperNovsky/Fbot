@@ -66,8 +66,10 @@ def restore_entries_from_text(content: str):
         line = line.strip()
         if not line or ":" not in line or "Raffle Entries" in line:
             continue
+        # Skip "!restoreentries" if it appears at the start of the line
+        if line.startswith("!restoreentries"):
+            line = line[len("!restoreentries"):].strip()
         try:
-            # Split on the first colon for username
             username, rest = line.split(":", 1)
             username = username.strip()
             # Extract first integer in the rest of the line as ticket count
@@ -215,3 +217,4 @@ async def reset(ctx):
 
 # ================== START ==================
 bot.run(DISCORD_TOKEN)
+
