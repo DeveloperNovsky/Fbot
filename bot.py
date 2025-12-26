@@ -37,14 +37,18 @@ last_batch = []  # Track last batch of usernames
 
 # ================== HELPERS ==================
 def add_ticket(username, amount=1):
-    raffle_entries[username] = raffle_entries.get(username, 0) + amount
+    """Add tickets in a case-insensitive way"""
+    key = username.lower()
+    raffle_entries[key] = raffle_entries.get(key, 0) + amount
 
 def remove_ticket(username, amount=1):
-    if username not in raffle_entries:
+    """Remove tickets in a case-insensitive way"""
+    key = username.lower()
+    if key not in raffle_entries:
         return False
-    raffle_entries[username] -= amount
-    if raffle_entries[username] <= 0:
-        del raffle_entries[username]
+    raffle_entries[key] -= amount
+    if raffle_entries[key] <= 0:
+        del raffle_entries[key]
         return True
     return False
 
@@ -71,7 +75,7 @@ def restore_entries_from_text(content: str):
             line = line[len("!restoreentries"):].strip()
         try:
             username, rest = line.split(":", 1)
-            username = username.strip()
+            username = username.strip().lower()  # normalize
             # Extract first integer in the rest of the line as ticket count
             count = int(next(word for word in rest.split() if word.isdigit()))
             if count > 0:
@@ -102,17 +106,17 @@ async def on_message(message):
     if message.content:
         names = extract_names_from_text(message.content)
         if len(names) >= 2:
-            last_batch = names.copy()
-            for name in names:
+            last_batch = [name.lower() for name in names]  # normalize
+            for name in last_batch:
                 add_ticket(name)
             save_entries()
-            summary = "\n".join(f"{name}: total {raffle_entries[name]}" for name in names)
+            summary = "\n".join(f"{name}: total {raffle_entries[name]}" for name in last_batch)
             await message.channel.send(f"🎟️ **Raffle tickets added**:\n```{summary}```")
 
 # ================== COMMANDS ==================
 @bot.command()
 async def addt(ctx, username: str, tickets: int):
-    """Add X tickets to a username (typed manually)."""
+    """Add X tickets to a username (case-insensitive)."""
     global last_batch
     if ctx.channel.id not in ALLOWED_CHANNELS:
         return
@@ -120,27 +124,30 @@ async def addt(ctx, username: str, tickets: int):
         await ctx.send("❌ Number of tickets must be greater than 0.")
         return
 
-    add_ticket(username, tickets)
+    username_key = username.lower()
+    add_ticket(username_key, tickets)
     save_entries()
-    last_batch = [username] * tickets
-    await ctx.send(f"✅ Added **{tickets} ticket(s)** to **{username}**. Total tickets: **{raffle_entries[username]}**")
+    last_batch = [username_key] * tickets
+    await ctx.send(f"✅ Added **{tickets} ticket(s)** to **{username}**. Total tickets: **{raffle_entries[username_key]}**")
 
 @bot.command()
 async def removet(ctx, username: str, tickets: int):
-    """Remove X tickets from a username (typed manually)."""
+    """Remove X tickets from a username (case-insensitive)."""
     if ctx.channel.id not in ALLOWED_CHANNELS:
         return
     if tickets <= 0:
         await ctx.send("❌ Number of tickets must be greater than 0.")
         return
-    if username not in raffle_entries:
+
+    username_key = username.lower()
+    if username_key not in raffle_entries:
         await ctx.send(f"❌ {username} has no tickets.")
         return
 
-    removed_tickets = min(tickets, raffle_entries[username])
-    remove_ticket(username, removed_tickets)
+    removed_tickets = min(tickets, raffle_entries[username_key])
+    remove_ticket(username_key, removed_tickets)
     save_entries()
-    await ctx.send(f"✅ Removed **{removed_tickets} ticket(s)** from **{username}**. Remaining tickets: **{raffle_entries.get(username, 0)}**")
+    await ctx.send(f"✅ Removed **{removed_tickets} ticket(s)** from **{username}**. Remaining tickets: **{raffle_entries.get(username_key, 0)}**")
 
 @bot.command()
 async def removele(ctx):
@@ -177,7 +184,7 @@ async def entries(ctx):
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def restoreentries(ctx):
-    """Restore raffle entries from a text block."""
+    """Restore raffle entries from a text block (case-insensitive)."""
     if ctx.channel.id not in ALLOWED_CHANNELS:
         return
     restored = restore_entries_from_text(ctx.message.content)
@@ -217,4 +224,3 @@ async def reset(ctx):
 
 # ================== START ==================
 bot.run(DISCORD_TOKEN)
-
