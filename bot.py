@@ -19,6 +19,10 @@ RAFFLE_FILE = os.path.join(BASE_DIR, "raffle_entries.json")
 
 DEFAULT_TICKETS = 1
 
+# ================== CHANNEL RESTRICTION ==================
+# Add the IDs of channels where the bot is allowed to work
+ALLOWED_CHANNELS = [1033249948084477982]  # <-- Replace with your channel IDs
+
 # ================== DATA ==================
 
 def load_entries():
@@ -95,6 +99,10 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
+    # Restrict processing to allowed channels
+    if message.channel.id not in ALLOWED_CHANNELS:
+        return
+
     if message.content:
         names = extract_names_from_text(message.content)
 
@@ -124,6 +132,9 @@ async def on_message(message):
 async def removele(ctx):
     global last_batch
 
+    if ctx.channel.id not in ALLOWED_CHANNELS:
+        return
+
     if not last_batch:
         await ctx.send("❌ No previous batch to remove.")
         return
@@ -147,6 +158,9 @@ async def removele(ctx):
 
 @bot.command()
 async def entries(ctx):
+    if ctx.channel.id not in ALLOWED_CHANNELS:
+        return
+
     if not raffle_entries:
         await ctx.send("No raffle entries yet.")
         return
@@ -163,6 +177,9 @@ async def entries(ctx):
 
 @bot.command()
 async def drawwinner(ctx):
+    if ctx.channel.id not in ALLOWED_CHANNELS:
+        return
+
     if not raffle_entries:
         await ctx.send("No raffle entries to draw from!")
         return
@@ -178,6 +195,9 @@ async def drawwinner(ctx):
 
 @bot.command()
 async def reset(ctx):
+    if ctx.channel.id not in ALLOWED_CHANNELS:
+        return
+
     raffle_entries.clear()
     save_entries()
     await ctx.send("✅ All raffle entries have been cleared.")
