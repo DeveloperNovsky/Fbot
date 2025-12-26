@@ -86,21 +86,16 @@ async def on_message(message):
 # ================== COMMANDS ==================
 @bot.command()
 async def addt(ctx, *args):
-    """
-    !addt DMR 5 L CBO 2 Do It Now 3
-    """
+    """!addt DMR 5 L CBO 2 Do It Now 3"""
     global last_batch
     if ctx.channel.id not in ALLOWED_CHANNELS:
         return
-
     if len(args) < 2:
         await ctx.send("❌ Usage: !addt username tickets [username tickets...]")
         return
-
     last_batch = []
     added_summary = []
     name_parts = []
-
     for arg in args:
         if arg.isdigit():
             tickets = int(arg)
@@ -112,21 +107,16 @@ async def addt(ctx, *args):
             name_parts = []
         else:
             name_parts.append(arg)
-
     save_entries()
     await ctx.send("✅ **Tickets added:**\n```" + "\n".join(added_summary) + "```")
 
 @bot.command()
 async def removet(ctx, *args):
-    """
-    !removet DMR 2 L CBO 1
-    """
+    """!removet DMR 2 L CBO 1"""
     if ctx.channel.id not in ALLOWED_CHANNELS:
         return
-
     removed_summary = []
     name_parts = []
-
     for arg in args:
         if arg.isdigit():
             tickets = int(arg)
@@ -143,7 +133,6 @@ async def removet(ctx, *args):
             name_parts = []
         else:
             name_parts.append(arg)
-
     save_entries()
     await ctx.send("✅ **Tickets removed:**\n```" + "\n".join(removed_summary) + "```")
 
@@ -153,13 +142,11 @@ async def removele(ctx):
     if not last_batch:
         await ctx.send("❌ No previous batch.")
         return
-
     summary = []
     for name in set(last_batch):
         count = last_batch.count(name)
         remove_ticket(name, count)
         summary.append(f"{user_display_names.get(name, name)}: -{count}")
-
     last_batch = []
     save_entries()
     await ctx.send("❌ **Last batch removed:**\n```" + "\n".join(summary) + "```")
@@ -182,37 +169,54 @@ async def restoreentries(ctx):
     Each line = 1 ticket.
     """
     global last_batch
-
     lines = ctx.message.content.splitlines()[1:]
-
     raffle_entries.clear()
     user_display_names.clear()
     last_batch = []
-
     restored = []
-
     for line in lines:
         line = line.strip()
         if not line:
             continue
-
         name = line.split(":")[0].split("|")[0].strip()
         key = name.lower()
-
         if len(name) < 2:
             continue
-
         add_ticket(key, name, 1)
         last_batch.append(key)
         restored.append(name)
-
     save_entries()
-
     await ctx.send(
         f"✅ **Raffle entries restored ({len(restored)} tickets):**\n```"
         + "\n".join(f"{n}: 1 ticket" for n in restored)
         + "```"
     )
+
+# ================== NEW !p COMMAND ==================
+@bot.command(name="p")
+async def paste_entries(ctx, *, content):
+    """
+    Add raffle tickets via pasted list using !p.
+    Each line = 1 ticket.
+    """
+    global last_batch
+    if ctx.channel.id not in ALLOWED_CHANNELS:
+        return
+    if content.startswith("!p"):
+        content = content[len("!p"):].strip()
+    lines = [line.strip() for line in content.splitlines() if line.strip()]
+    if not lines:
+        await ctx.send("❌ No valid names found in the pasted content.")
+        return
+    last_batch = []
+    added_summary = []
+    for name in lines:
+        key = name.lower()
+        add_ticket(key, display_name=name, amount=1)
+        last_batch.append(key)
+        added_summary.append(f"{name}: total {raffle_entries[key]}")
+    save_entries()
+    await ctx.send(f"🎟️ **Raffle tickets added from paste:**\n```" + "\n".join(added_summary) + "```")
 
 @bot.command()
 async def drawwinner(ctx):
@@ -238,4 +242,5 @@ async def reset(ctx):
 
 # ================== START ==================
 bot.run(DISCORD_TOKEN)
+
 
