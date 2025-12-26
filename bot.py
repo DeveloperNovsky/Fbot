@@ -16,7 +16,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RAFFLE_FILE = os.path.join(BASE_DIR, "raffle_entries.json")
 
-ALLOWED_CHANNELS = [1033249948084477982]  # Replace with your channel ID
+ALLOWED_CHANNELS = [1033249948084477982]  # your channel ID
 
 # ================== DATA ==================
 def load_entries():
@@ -32,7 +32,11 @@ def save_entries(entries=None, display_names=None):
     if display_names is None:
         display_names = user_display_names
     with open(RAFFLE_FILE, "w", encoding="utf-8") as f:
-        json.dump({"raffle_entries": entries, "display_names": display_names}, f, indent=2)
+        json.dump(
+            {"raffle_entries": entries, "display_names": display_names},
+            f,
+            indent=2
+        )
 
 raffle_entries, user_display_names = load_entries()
 last_batch = []
@@ -82,8 +86,10 @@ async def on_message(message):
 # ================== COMMANDS ==================
 @bot.command()
 async def addt(ctx, *args):
-    """Add tickets to multiple users. Deletes command after processing."""
-    await ctx.message.delete()
+    """
+    Add tickets to multiple users.
+    Usage: !addt DMR 5 L CBO 2 Do It Now 3
+    """
     global last_batch
     if ctx.channel.id not in ALLOWED_CHANNELS:
         return
@@ -109,12 +115,14 @@ async def addt(ctx, *args):
             name_parts.append(arg)
 
     save_entries()
-    await ctx.send("✅ **Tickets added:**\n" + "\n".join(added_summary))
+    await ctx.send("✅ **Tickets added:**\n```" + "\n".join(added_summary) + "```")
 
 @bot.command()
 async def removet(ctx, *args):
-    """Remove tickets from multiple users. Deletes command after processing."""
-    await ctx.message.delete()
+    """
+    Remove tickets from multiple users.
+    Usage: !removet DMR 2 L CBO 1
+    """
     if ctx.channel.id not in ALLOWED_CHANNELS:
         return
 
@@ -129,7 +137,9 @@ async def removet(ctx, *args):
             if key in raffle_entries:
                 removed = min(tickets, raffle_entries[key])
                 remove_ticket(key, removed)
-                removed_summary.append(f"{user_display_names.get(key, username)}: -{removed}")
+                removed_summary.append(
+                    f"{user_display_names.get(key, username)}: -{removed}"
+                )
             else:
                 removed_summary.append(f"{username}: ❌ No tickets")
             name_parts = []
@@ -137,12 +147,10 @@ async def removet(ctx, *args):
             name_parts.append(arg)
 
     save_entries()
-    await ctx.send("✅ **Tickets removed:**\n" + "\n".join(removed_summary))
+    await ctx.send("✅ **Tickets removed:**\n```" + "\n".join(removed_summary) + "```")
 
 @bot.command()
 async def removele(ctx):
-    """Remove last batch of tickets. Deletes command after processing."""
-    await ctx.message.delete()
     global last_batch
     if not last_batch:
         await ctx.send("❌ No previous batch.")
@@ -156,62 +164,116 @@ async def removele(ctx):
 
     last_batch = []
     save_entries()
-    await ctx.send("❌ **Last batch removed:**\n" + "\n".join(summary))
+    await ctx.send("❌ **Last batch removed:**\n```" + "\n".join(summary) + "```")
 
 @bot.command()
 async def entries(ctx):
-    """Show total entries. Deletes command after processing."""
-    await ctx.message.delete()
     total = sum(raffle_entries.values())
-    await ctx.send(f"🎟️ Entries ({total} total)")
+    summary = "\n".join(
+        f"{user_display_names.get(k, k)}: {v} ticket(s)"
+        for k, v in raffle_entries.items()
+    )
+    await ctx.send(f"🎟️ **Entries ({total} total):**\n```{summary}```")
 
-@bot.command()
+# ================== RESTORE COMMAND ==================
+@bot.command(name="restore")
 @commands.has_permissions(administrator=True)
 async def restore(ctx, *, content):
-    """Restore raffle entries from pasted list. Deletes command after processing."""
-    await ctx.message.delete()
+    """
+    Restore raffle entries from a pasted list.
+    Each line: username: X ticket(s) or just username (1 ticket)
+    """
     global last_batch
+    if ctx.channel.id not in ALLOWED_CHANNELS:
+        return
 
-    lines = content.splitlines()
-    raffle_entries.clear()
-    user_display_names.clear()
+    # Remove the command itself if accidentally included
+    if content.startswith("!restore"):
+        content = content[len("!restore"):].strip()
+
+    restored = {}
+    display_names = {}
     last_batch = []
 
-    total_tickets = 0
-    for line in lines:
+    for line in content.splitlines():
         line = line.strip()
         if not line:
             continue
-        name = line.split(":")[0].split("|")[0].strip()
-        key = name.lower()
-        if len(name) < 2:
-            continue
-        add_ticket(key, name, 1)
-        last_batch.append(key)
-        total_tickets += 1
 
+        username = line.split(":")[0].split("|")[0].strip()
+        key = username.lower()
+        if len(username) < 2:
+            continue
+
+        try:
+            count = int(next(word for word in line.split() if word.isdigit()))
+        except StopIteration:
+            count = 1
+
+        restored[key] = count
+        display_names[key] = username
+        last_batch.extend([key] * count)
+
+    if not restored:
+        await ctx.send("❌ No valid raffle entries found to restore.")
+        return
+
+    raffle_entries.clear()
+    raffle_entries.update(restored)
+    user_display_names.clear()
+    user_display_names.update(display_names)
     save_entries()
-    await ctx.send(f"✅ Raffle entries restored ({total_tickets} total tickets)")
+
+    summary = "\n".join(f"{user_display_names.get(name, name)}: {raffle_entries[name]} ticket(s)" for name in restored)
+    total_tickets = sum(raffle_entries.values())
+    await ctx.send(f"✅ **Raffle entries restored ({total_tickets} total tickets):**\n```{summary}```")
 
 @bot.command()
 async def drawwinner(ctx):
-    """Draw a winner. Deletes command after processing."""
-    await ctx.message.delete()
     if not raffle_entries:
         await ctx.send("No entries.")
         return
-    winner = random.choices(list(raffle_entries.keys()), weights=raffle_entries.values(), k=1)[0]
-    await ctx.send(f"🎉 Winner: **{user_display_names.get(winner, winner)}** ({raffle_entries[winner]} tickets)")
+    winner = random.choices(
+        list(raffle_entries.keys()),
+        weights=raffle_entries.values(),
+        k=1
+    )[0]
+    await ctx.send(
+        f"🎉 Winner: **{user_display_names.get(winner, winner)}** "
+        f"({raffle_entries[winner]} tickets)"
+    )
 
 @bot.command()
 async def reset(ctx):
-    """Reset all entries. Deletes command after processing."""
-    await ctx.message.delete()
     raffle_entries.clear()
     user_display_names.clear()
     save_entries()
     await ctx.send("✅ Raffle reset.")
 
+@bot.command()
+async def p(ctx, *, content):
+    """
+    Add raffle tickets via pasted list.
+    Each line = 1 ticket.
+    """
+    global last_batch
+    if ctx.channel.id not in ALLOWED_CHANNELS:
+        return
+
+    names = extract_names_from_text(content)
+    if not names:
+        await ctx.send("❌ No valid names found in the pasted content.")
+        return
+
+    last_batch = [name.lower() for name in names]
+    for name in last_batch:
+        add_ticket(name, display_name=name)
+
+    save_entries()
+    summary = "\n".join(f"{user_display_names.get(name, name)}: total {raffle_entries[name]}" for name in last_batch)
+    await ctx.send(f"🎟️ **Raffle tickets added from paste:**\n```{summary}```")
+
 # ================== START ==================
 bot.run(DISCORD_TOKEN)
+
 
