@@ -1,81 +1,85 @@
 import os
 import json
-import random
 import discord
 from discord.ext import commands
+import random
+from dotenv import load_dotenv
 
-# ---------------- CONFIG ---------------- #
-DATA_FILE = "raffle_entries.json"
-DEFAULT_TICKETS = 1
+# Load environment variables
+load_dotenv()
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
-# ---------------- DISCORD SETUP ---------------- #
+# Discord intents
 intents = discord.Intents.default()
 intents.message_content = True
+
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ---------------- DATA HANDLING ---------------- #
-def load_entries():
-    if not os.path.exists(DATA_FILE):
-        return {}
-    with open(DATA_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+# File paths
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+RAFFLE_FILE = os.path.join(BASE_DIR, "raffle_entries.json")
 
-def save_entries(data):
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
+# ---------------- LOAD / SAVE ---------------- #
 
-raffle_entries = load_entries()
-last_batch = []
+def save_entries():
+    with open(RAFFLE_FILE, "w", encoding="utf-8") as f:
+        json.dump(raffle_entries, f, indent=2)
 
-def add_ticket(name, amount=1):
-    raffle_entries[name] = raffle_entries.get(name, 0) + amount
+if os.path.exists(RAFFLE_FILE):
+    with open(RAFFLE_FILE, "r", encoding="utf-8") as f:
+        raffle_entries = json.load(f)
+else:
+    raffle_entries = {}
 
-def remove_ticket(name, amount=1):
-    if name in raffle_entries:
-        raffle_entries[name] -= amount
-        if raffle_entries[name] <= 0:
-            del raffle_entries[name]
+def add_ticket(name):
+    raffle_entries[name] = raffle_entries.get(name, 0) + 1
 
 # ---------------- EVENTS ---------------- #
+
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user}")
+    print(f"✅ Logged in as {bot.user}")
 
 @bot.event
 async def on_message(message):
-    global last_batch
-
-    if message.author == bot.user:
+    if message.author.bot:
         return
 
-    lines = [
-        line.strip()
-        for line in message.content.splitlines()
-        if len(line.strip()) >= 2
-    ]
+    lines = []
 
-    # Require at least 2 names to prevent accidents
-    if len(lines) >= 2:
-        last_batch = lines.copy()
+    for raw_line in message.content.splitlines():
+        raw_line = raw_line.strip()
+        if not raw_line:
+            continue
 
+        # ✅ CLEAN FIX: take only text before "|"
+        name = raw_line.split("|")[0].strip()
+
+        if len(name) < 2:
+            continue
+
+        lines.append(name)
+
+    if len(lines) >= 1:
         for name in lines:
-            add_ticket(name, DEFAULT_TICKETS)
+            add_ticket(name)
 
-        save_entries(raffle_entries)
+        save_entries()
 
         summary = "\n".join(
-            f"{name}: total {raffle_entries[name]} ticket(s)"
+            f"{name}: total {raffle_entries[name]}"
             for name in lines
         )
 
         await message.channel.send(
-            f"🎟️ **Raffle tickets added**:\n```{summary}```"
+            f"🎟️ **Raffle tickets added:**\n```{summary}```"
         )
         return
 
     await bot.process_commands(message)
 
 # ---------------- COMMANDS ---------------- #
+
 @bot.command()
 async def entries(ctx):
     if not raffle_entries:
@@ -102,42 +106,14 @@ async def drawwinner(ctx):
     weights = list(raffle_entries.values())
 
     winner = random.choices(names, weights=weights, k=1)[0]
-    await ctx.send(
-        f"🎉 The winner is **{winner}** with **{raffle_entries[winner]} ticket(s)**!"
-    )
 
-@bot.command()
-async def removele(ctx):
-    global last_batch
-
-    if not last_batch:
-        await ctx.send("No previous batch to remove.")
-        return
-
-    removed = []
-
-    for name in last_batch:
-        if name in raffle_entries:
-            remove_ticket(name, DEFAULT_TICKETS)
-            removed.append(name)
-
-    save_entries(raffle_entries)
-    last_batch = []
-
-    if removed:
-        summary = "\n".join(f"{name}: -1 ticket" for name in removed)
-        await ctx.send(
-            f"❌ Removed raffle tickets from last batch:\n```{summary}```"
-        )
-    else:
-        await ctx.send("Nothing to remove.")
+    await ctx.send(f"🎉 **Winner:** {winner}")
 
 @bot.command()
 async def reset(ctx):
     raffle_entries.clear()
-    save_entries(raffle_entries)
-    await ctx.send("✅ All raffle entries have been cleared.")
+    save_entries()
+    await ctx.send("✅ All raffle entries cleared.")
 
-# ---------------- RUN BOT (Railway) ---------------- #
-bot.run(os.environ["DISCORD_TOKEN"])
+bot.run(DISCORD_TOKEN)
 
