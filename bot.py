@@ -190,6 +190,7 @@ async def removele(ctx):
         + "```"
     )
 
+# Add custom tickets command
 @bot.command()
 async def addt(ctx, member: discord.Member, tickets: int):
     """
@@ -217,6 +218,40 @@ async def addt(ctx, member: discord.Member, tickets: int):
     await ctx.send(
         f"✅ Added **{tickets} ticket(s)** to **{name}**. "
         f"Total tickets: **{raffle_entries[name]}**"
+    )
+
+# Remove a specific amount of tickets manually
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def removet(ctx, member: discord.Member, tickets: int):
+    """
+    Removes a specified number of raffle tickets from a member.
+    Usage: !removet @user 5
+    """
+    if ctx.channel.id not in ALLOWED_CHANNELS:
+        return
+
+    if tickets <= 0:
+        await ctx.send("❌ Number of tickets to remove must be greater than 0.")
+        return
+
+    name = str(member)
+
+    if name not in raffle_entries:
+        await ctx.send(f"❌ {name} has no tickets.")
+        return
+
+    removed_tickets = min(tickets, raffle_entries[name])
+    raffle_entries[name] -= removed_tickets
+
+    if raffle_entries[name] <= 0:
+        del raffle_entries[name]
+
+    save_entries()
+
+    await ctx.send(
+        f"✅ Removed **{removed_tickets} ticket(s)** from **{name}**. "
+        f"Remaining tickets: **{raffle_entries.get(name, 0)}**"
     )
 
 @bot.command()
