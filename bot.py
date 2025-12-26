@@ -19,7 +19,7 @@ RAFFLE_FILE = os.path.join(BASE_DIR, "raffle_entries.json")
 
 DEFAULT_TICKETS = 1
 
-# ================== DATA HANDLING ==================
+# ================== DATA ==================
 
 def load_entries():
     if not os.path.exists(RAFFLE_FILE):
@@ -28,7 +28,6 @@ def load_entries():
     with open(RAFFLE_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-        # migrate old list format
         if isinstance(data, list):
             migrated = {}
             for name in data:
@@ -49,36 +48,38 @@ def save_entries(entries=None):
 
 raffle_entries = load_entries()
 
-def add_tickets(name, amount=1):
-    raffle_entries[name] = raffle_entries.get(name, 0) + amount
+# 🔑 tracks the last batch added
+last_batch = []
 
-def remove_ticket(name, amount=1):
+def add_ticket(name):
+    raffle_entries[name] = raffle_entries.get(name, 0) + 1
+
+def remove_ticket(name):
     if name not in raffle_entries:
-        return
+        return False
 
-    raffle_entries[name] -= amount
+    raffle_entries[name] -= 1
     if raffle_entries[name] <= 0:
         del raffle_entries[name]
+        return True
+
+    return False
 
 # ================== NAME CLEANING ==================
 
 def extract_names_from_text(content: str):
     names = []
 
-    for raw_line in content.splitlines():
-        raw_line = raw_line.strip()
-        if not raw_line:
+    for line in content.splitlines():
+        line = line.strip()
+        if not line:
             continue
 
-        # take everything before "|"
-        name = raw_line.split("|")[0].strip()
+        name = line.split("|")[0].strip()
 
-        if len(name) < 2:
-            continue
+        if len(name) >= 2:
+            names.append(name)
 
-        names.append(name)
-
-    # remove duplicates, preserve order
     return list(dict.fromkeys(names))
 
 # ================== EVENTS ==================
@@ -89,6 +90,8 @@ async def on_ready():
 
 @bot.event
 async def on_message(message):
+    global last_batch
+
     if message.author == bot.user:
         return
 
@@ -96,8 +99,10 @@ async def on_message(message):
         names = extract_names_from_text(message.content)
 
         if len(names) >= 2:
+            last_batch = names.copy()  # ✅ save batch
+
             for name in names:
-                add_tickets(name, DEFAULT_TICKETS)
+                add_ticket(name)
 
             save_entries()
 
@@ -114,6 +119,31 @@ async def on_message(message):
     await bot.process_commands(message)
 
 # ================== COMMANDS ==================
+
+@bot.command()
+async def removele(ctx):
+    global last_batch
+
+    if not last_batch:
+        await ctx.send("❌ No previous batch to remove.")
+        return
+
+    removed_summary = []
+
+    for name in last_batch:
+        if name in raffle_entries:
+            removed = remove_ticket(name)
+            status = "removed (now 0)" if removed else f"now {raffle_entries[name]}"
+            removed_summary.append(f"{name}: -1 ({status})")
+
+    save_entries()
+    last_batch = []  # prevent double remove
+
+    await ctx.send(
+        f"❌ **Removed 1 raffle ticket from last batch:**\n```"
+        + "\n".join(removed_summary)
+        + "```"
+    )
 
 @bot.command()
 async def entries(ctx):
