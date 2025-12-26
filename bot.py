@@ -88,76 +88,66 @@ async def on_message(message):
 async def addt(ctx, *args):
     """
     Add tickets to multiple users.
-    Example: !addt DMR 5 L CBO 2 Do It Now 3
+    Usage: !addt DMR 5 L CBO 2 Do It Now 3
     """
     global last_batch
     if ctx.channel.id not in ALLOWED_CHANNELS:
         return
 
     if len(args) < 2:
-        await ctx.send("❌ Usage: !addt username tickets [username tickets ...]")
+        await ctx.send("❌ Usage: !addt username tickets [username tickets...]")
         return
 
     last_batch = []
     added_summary = []
-    username_parts = []
+    name_parts = []
 
     for arg in args:
-        try:
+        if arg.isdigit():
             tickets = int(arg)
-            username = " ".join(username_parts)
+            username = " ".join(name_parts)
             key = username.lower()
-            add_ticket(key, display_name=username, amount=tickets)
+            add_ticket(key, username, tickets)
             last_batch.extend([key] * tickets)
-            added_summary.append(f"{username}: {raffle_entries[key]} ticket(s)")
-            username_parts = []
-        except ValueError:
-            username_parts.append(arg)
-
-    if username_parts:
-        await ctx.send(f"❌ Missing ticket number for: {' '.join(username_parts)}")
-        return
+            added_summary.append(f"{username}: +{tickets} (Total {raffle_entries[key]})")
+            name_parts = []
+        else:
+            name_parts.append(arg)
 
     save_entries()
-    await ctx.send(f"✅ **Tickets added successfully:**\n```{chr(10).join(added_summary)}```")
+    await ctx.send("✅ **Tickets added:**\n```" + "\n".join(added_summary) + "```")
 
 @bot.command()
 async def removet(ctx, *args):
     """
     Remove tickets from multiple users.
-    Example: !removet DMR 3 L CBO 1 Do It Now 2
+    Usage: !removet DMR 2 L CBO 1
     """
     if ctx.channel.id not in ALLOWED_CHANNELS:
         return
 
-    if len(args) < 2:
-        await ctx.send("❌ Usage: !removet username tickets [username tickets ...]")
-        return
-
     removed_summary = []
-    username_parts = []
+    name_parts = []
 
     for arg in args:
-        try:
+        if arg.isdigit():
             tickets = int(arg)
-            username = " ".join(username_parts)
+            username = " ".join(name_parts)
             key = username.lower()
-            if key not in raffle_entries:
-                removed_summary.append(f"{username}: 0 ticket(s)")
+            if key in raffle_entries:
+                removed = min(tickets, raffle_entries[key])
+                remove_ticket(key, removed)
+                removed_summary.append(
+                    f"{user_display_names.get(key, username)}: -{removed}"
+                )
             else:
-                removed_tickets = min(tickets, raffle_entries[key])
-                remove_ticket(key, removed_tickets)
-                removed_summary.append(f"{user_display_names.get(key, username)}: {raffle_entries.get(key, 0)} ticket(s)")
-            username_parts = []
-        except ValueError:
-            username_parts.append(arg)
-
-    if username_parts:
-        await ctx.send(f"❌ Missing ticket number for: {' '.join(username_parts)}")
-        return
+                removed_summary.append(f"{username}: ❌ No tickets")
+            name_parts = []
+        else:
+            name_parts.append(arg)
 
     save_entries()
-    await ctx.send(f"✅ **Tickets removed successfully:**\n```{chr(10).join(removed_summary)}```")
+    await ctx.send("✅ **Tickets removed:**\n```" + "\n".join(removed_summary) + "```")
 
 @bot.command()
 async def removele(ctx):
@@ -170,11 +160,11 @@ async def removele(ctx):
     for name in set(last_batch):
         count = last_batch.count(name)
         remove_ticket(name, count)
-        summary.append(f"{user_display_names.get(name, name)}: {raffle_entries.get(name, 0)} ticket(s)")
+        summary.append(f"{user_display_names.get(name, name)}: -{count}")
 
     last_batch = []
     save_entries()
-    await ctx.send(f"❌ **Last batch removed:**\n```{chr(10).join(summary)}```")
+    await ctx.send("❌ **Last batch removed:**\n```" + "\n".join(summary) + "```")
 
 @bot.command()
 async def entries(ctx):
@@ -185,42 +175,21 @@ async def entries(ctx):
     )
     await ctx.send(f"🎟️ **Entries ({total} total):**\n```{summary}```")
 
-@bot.command(name="p")
-async def pasteentries(ctx, *, content):
-    """
-    Paste entries (1 ticket per line).
-    """
-    global last_batch
-    if ctx.channel.id not in ALLOWED_CHANNELS:
-        return
-
-    names = extract_names_from_text(content)
-    if not names:
-        await ctx.send("❌ No valid names found in the pasted content.")
-        return
-
-    last_batch = [name.lower() for name in names]
-    for name in last_batch:
-        add_ticket(name, display_name=name)
-
-    save_entries()
-    summary = "\n".join(f"{user_display_names.get(name, name)}: {raffle_entries[name]} ticket(s)" for name in set(last_batch))
-    await ctx.send(f"🎟️ **Raffle tickets added from paste:**\n```{summary}```")
-
-@bot.command()
+# ================== RESTORE COMMAND ==================
+@bot.command(name="restore")
 @commands.has_permissions(administrator=True)
-async def restoreentries(ctx, *, content):
+async def restore(ctx, *, content):
     """
     Restore raffle entries from a pasted list.
-    Each line: username: X ticket(s) or just username (1 ticket).
+    Each line: username: X ticket(s) or just username (1 ticket)
     """
     global last_batch
     if ctx.channel.id not in ALLOWED_CHANNELS:
         return
 
-    # Remove command text if accidentally included
-    if content.startswith("!restoreentries"):
-        content = content[len("!restoreentries"):].strip()
+    # Remove the command itself if accidentally included
+    if content.startswith("!restore"):
+        content = content[len("!restore"):].strip()
 
     restored = {}
     display_names = {}
@@ -281,7 +250,29 @@ async def reset(ctx):
     save_entries()
     await ctx.send("✅ Raffle reset.")
 
+@bot.command()
+async def p(ctx, *, content):
+    """
+    Add raffle tickets via pasted list.
+    Each line = 1 ticket.
+    """
+    global last_batch
+    if ctx.channel.id not in ALLOWED_CHANNELS:
+        return
+
+    names = extract_names_from_text(content)
+    if not names:
+        await ctx.send("❌ No valid names found in the pasted content.")
+        return
+
+    last_batch = [name.lower() for name in names]
+    for name in last_batch:
+        add_ticket(name, display_name=name)
+
+    save_entries()
+    summary = "\n".join(f"{user_display_names.get(name, name)}: total {raffle_entries[name]}" for name in last_batch)
+    await ctx.send(f"🎟️ **Raffle tickets added from paste:**\n```{summary}```")
+
 # ================== START ==================
 bot.run(DISCORD_TOKEN)
-
 
