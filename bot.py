@@ -97,12 +97,7 @@ def parse_amount(amount: str) -> int:
 
 @bot.command()
 async def adddn(ctx, arg1: str, arg2: str = None):
-    """
-    Add a donation to a user and update clan bank.
-    Usage: !adddn @User 500k or !adddn Username 500k
-    """
     global donations_data
-
     amount = None
     username = None
 
@@ -146,14 +141,10 @@ async def adddn(ctx, arg1: str, arg2: str = None):
 
 @bot.command()
 async def donations(ctx):
-    """
-    Show only the clan bank total.
-    """
     global donations_data
-    total_clan_bank = donations_data.get("clan_bank", 0)
-    await ctx.send(f"💰 **Clan Bank Total:** `{total_clan_bank:,}` gp")
+    await ctx.send(f"💰 **Clan Bank Total:** `{donations_data['clan_bank']:,}` gp")
 
-# ================== EVENTS ==================
+# ================== EVENTS (single versions) ==================
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
