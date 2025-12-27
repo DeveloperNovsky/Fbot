@@ -62,22 +62,21 @@ def remove_ticket(username, amount=1):
     return False
 
 # ================== DONATIONS ==================
-def load_donations():
-    if not os.path.exists(DONATIONS_FILE):
-        data = {"donations": {}, "clan_bank": 0}
-        with open(DONATIONS_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-        return data
+# Load donations or create file if missing
+if os.path.exists(DONATIONS_FILE):
     with open(DONATIONS_FILE, "r", encoding="utf-8") as f:
         try:
-            data = json.load(f)
-            if "donations" not in data:
-                data["donations"] = {}
-            if "clan_bank" not in data:
-                data["clan_bank"] = 0
-            return data
+            donations = json.load(f)
+            if "donations" not in donations:
+                donations["donations"] = {}
+            if "clan_bank" not in donations:
+                donations["clan_bank"] = 0
         except json.JSONDecodeError:
-            return {"donations": {}, "clan_bank": 0}
+            donations = {"donations": {}, "clan_bank": 0}
+else:
+    donations = {"donations": {}, "clan_bank": 0}
+    with open(DONATIONS_FILE, "w", encoding="utf-8") as f:
+        json.dump(donations, f, indent=2)
 
 def save_donations():
     with open(DONATIONS_FILE, "w", encoding="utf-8") as f:
@@ -94,8 +93,6 @@ def parse_amount(amount: str) -> int:
     if amount.isdigit():
         return int(amount)
     raise ValueError
-
-donations = load_donations()  # Load donations at bot startup
 
 @bot.command()
 async def adddn(ctx, arg1: str, arg2: str = None):
@@ -134,8 +131,7 @@ async def adddn(ctx, arg1: str, arg2: str = None):
     key = username.lower()
     donations["donations"][key] = donations["donations"].get(key, 0) + value
     donations["clan_bank"] += value
-
-    save_donations()  # save after every donation
+    save_donations()
 
     await ctx.send(
         f"💰 **Donation Added**\n"
@@ -144,6 +140,14 @@ async def adddn(ctx, arg1: str, arg2: str = None):
         f"Donation Clan Bank: `{donations['donations'][key]:,}` gp\n"
         f"Clan Bank: `{donations['clan_bank']:,}` gp"
     )
+
+@bot.command()
+async def donations(ctx):
+    """
+    Show only the clan bank total.
+    """
+    total_clan_bank = donations.get("clan_bank", 0)
+    await ctx.send(f"💰 **Clan Bank Total:** `{total_clan_bank:,}` gp")
 
 # ================== EVENTS ==================
 @bot.event
