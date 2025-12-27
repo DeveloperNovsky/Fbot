@@ -15,6 +15,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# Files
 RAFFLE_FILE = os.path.join(BASE_DIR, "raffle_entries.json")
 DONATIONS_FILE = os.path.join(BASE_DIR, "donations.json")
 
@@ -60,6 +61,89 @@ def remove_ticket(username, amount=1):
         user_display_names.pop(key, None)
         return True
     return False
+
+# ================== DONATIONS ==================
+# Load donations once at startup
+if os.path.exists(DONATIONS_FILE):
+    with open(DONATIONS_FILE, "r", encoding="utf-8") as f:
+        donations = json.load(f)
+else:
+    donations = {"donations": {}, "clan_bank": 0}
+
+def save_donations():
+    with open(DONATIONS_FILE, "w", encoding="utf-8") as f:
+        json.dump(donations, f, indent=2)
+
+def parse_amount(amount: str) -> int:
+    amount = amount.lower().replace(",", "").strip()
+    if amount.endswith("k"):
+        return int(float(amount[:-1]) * 1_000)
+    if amount.endswith("m"):
+        return int(float(amount[:-1]) * 1_000_000)
+    if amount.endswith("b"):
+        return int(float(amount[:-1]) * 1_000_000_000)
+    if amount.isdigit():
+        return int(amount)
+    raise ValueError
+
+@bot.command()
+async def adddn(ctx, arg1: str, arg2: str = None):
+    """Add a donation for a user and track clan bank"""
+    amount = None
+    username = None
+
+    if ctx.message.mentions:
+        user = ctx.message.mentions[0]
+        username = user.display_name
+        for part in ctx.message.content.split():
+            if part.lower().endswith(("k", "m", "b")) or part.replace(",", "").isdigit():
+                amount = part
+                break
+    else:
+        if arg1.lower().endswith(("k", "m", "b")) or arg1.replace(",", "").isdigit():
+            amount = arg1
+            username = arg2
+        else:
+            username = arg1
+            amount = arg2
+
+    if not amount or not username:
+        await ctx.send("❌ Usage: !adddn <user> <amount>")
+        return
+
+    try:
+        value = parse_amount(amount)
+    except ValueError:
+        await ctx.send("❌ Invalid amount. Use 10m / 500k / 1b")
+        return
+
+    key = username.lower()
+    donations["donations"][key] = donations["donations"].get(key, 0) + value
+    donations["clan_bank"] += value
+    save_donations()
+
+    await ctx.send(
+        f"💰 **Donation Added**\n"
+        f"User: **{username}**\n"
+        f"Amount: `{value:,}` gp\n"
+        f"Donation Clan Bank: `{donations['donations'][key]:,}` gp\n"
+        f"Clan Bank: `{donations['clan_bank']:,}` gp"
+    )
+
+@bot.command()
+async def donations_total(ctx):
+    await ctx.send(f"💰 **Clan Bank Total:** {donations['clan_bank']:,} gp")
+
+@bot.command()
+async def topdonors(ctx, top: int = 5):
+    if not donations["donations"]:
+        await ctx.send("No donations yet.")
+        return
+    sorted_donors = sorted(donations["donations"].items(), key=lambda x: x[1], reverse=True)
+    message = [f"💰 **Top {top} Donors:**"]
+    for i, (user, amount) in enumerate(sorted_donors[:top], start=1):
+        message.append(f"{i}. {user}: {amount:,} gp")
+    await ctx.send("\n".join(message))
 
 # ================== EVENTS ==================
 @bot.event
@@ -144,75 +228,5 @@ async def reset(ctx):
     save_entries()
     await ctx.send("✅ Raffle reset.")
 
-# ================== DONATIONS ==================
-def load_donations():
-    if not os.path.exists(DONATIONS_FILE):
-        return {"donations": {}, "clan_bank": 0}
-    with open(DONATIONS_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-def save_donations(data):
-    with open(DONATIONS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
-
-def parse_amount(amount: str) -> int:
-    amount = amount.lower().replace(",", "").strip()
-    if amount.endswith("k"):
-        return int(float(amount[:-1]) * 1_000)
-    if amount.endswith("m"):
-        return int(float(amount[:-1]) * 1_000_000)
-    if amount.endswith("b"):
-        return int(float(amount[:-1]) * 1_000_000_000)
-    if amount.isdigit():
-        return int(amount)
-    raise ValueError
-
-@bot.command()
-async def adddn(ctx, arg1: str, arg2: str = None):
-    donations = load_donations()
-
-    amount = None
-    username = None
-
-    if ctx.message.mentions:
-        user = ctx.message.mentions[0]
-        username = user.display_name
-        for part in ctx.message.content.split():
-            if part.lower().endswith(("k", "m", "b")) or part.replace(",", "").isdigit():
-                amount = part
-                break
-    else:
-        if arg1.lower().endswith(("k", "m", "b")) or arg1.replace(",", "").isdigit():
-            amount = arg1
-            username = arg2
-        else:
-            username = arg1
-            amount = arg2
-
-    if not amount or not username:
-        await ctx.send("❌ Usage: !adddn <user> <amount>")
-        return
-
-    try:
-        value = parse_amount(amount)
-    except ValueError:
-        await ctx.send("❌ Invalid amount. Use 10m / 500k / 1b")
-        return
-
-    key = username.lower()
-    donations["donations"][key] = donations["donations"].get(key, 0) + value
-    donations["clan_bank"] += value
-
-    save_donations(donations)
-
-    await ctx.send(
-        f"💰 **Donation Added**\n"
-        f"User: **{username}**\n"
-        f"Amount: `{value:,}` gp\n"
-        f"Donation Clan Bank: `{donations['donations'][key]:,}` gp\n"
-        f"Clan Bank: `{donations['clan_bank']:,}` gp"
-    )
-
 # ================== START ==================
 bot.run(DISCORD_TOKEN)
-
