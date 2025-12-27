@@ -398,11 +398,50 @@ async def adddn(ctx, arg1: str, arg2: str = None):
     await ctx.send(message)
 
 @bot.command()
+@commands.has_permissions(administrator=True)
+async def resetd(ctx, *, username: str):
+    member = None
+
+    # Mention support
+    if ctx.message.mentions:
+        member = ctx.message.mentions[0]
+        username = member.display_name
+    else:
+        member = discord.utils.find(
+            lambda m: m.display_name.lower() == username.lower(),
+            ctx.guild.members
+        )
+
+    key = username.lower()
+
+    if key not in donations_data["donations"]:
+        await ctx.send(f"❌ **{username}** has no recorded donations.")
+        return
+
+    # Reset donation amount
+    donations_data["donations"][key] = 0
+    save_donations()
+
+    # Remove donation roles
+    if member:
+        for _, role_name in DONATION_ROLES:
+            role = discord.utils.get(ctx.guild.roles, name=role_name)
+            if role and role in member.roles:
+                await member.remove_roles(role)
+
+    await ctx.send(
+        f"♻️ **Donations Reset**\n"
+        f"User: **{username}**\n"
+        f"Total Donation to Clan Bank: `0` gp"
+    )
+
+@bot.command()
 async def donations(ctx):
     await ctx.send(f"💰 Clan Bank Total: `{donations_data['clan_bank']:,}` gp")
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
 
 
 
