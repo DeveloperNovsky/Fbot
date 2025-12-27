@@ -27,15 +27,16 @@ def load_entries():
     if not os.path.exists(RAFFLE_FILE):
         return {}, {}
     with open(RAFFLE_FILE, "r", encoding="utf-8") as f:
-        try:
-            data = json.load(f)
-            return data.get("raffle_entries", {}), data.get("display_names", {})
-        except json.JSONDecodeError:
-            return {}, {}
+        data = json.load(f)
+        return data.get("raffle_entries", {}), data.get("display_names", {})
 
-def save_entries():
+def save_entries(entries=None, display_names=None):
+    if entries is None:
+        entries = raffle_entries
+    if display_names is None:
+        display_names = user_display_names
     with open(RAFFLE_FILE, "w", encoding="utf-8") as f:
-        json.dump({"raffle_entries": raffle_entries, "display_names": user_display_names}, f, indent=2)
+        json.dump({"raffle_entries": entries, "display_names": display_names}, f, indent=2)
 
 raffle_entries, user_display_names = load_entries()
 last_batch = []
@@ -58,25 +59,25 @@ def remove_ticket(username, amount=1):
     return False
 
 # ================== DONATIONS DATA ==================
-def load_donations():
-    if not os.path.exists(DONATIONS_FILE):
-        return {"donations": {}, "clan_bank": 0}
+# Load donations at startup
+if os.path.exists(DONATIONS_FILE):
     with open(DONATIONS_FILE, "r", encoding="utf-8") as f:
         try:
-            data = json.load(f)
-            if "donations" not in data:
-                data["donations"] = {}
-            if "clan_bank" not in data:
-                data["clan_bank"] = 0
-            return data
+            donations = json.load(f)
+            if "donations" not in donations:
+                donations["donations"] = {}
+            if "clan_bank" not in donations:
+                donations["clan_bank"] = 0
         except json.JSONDecodeError:
-            return {"donations": {}, "clan_bank": 0}
+            donations = {"donations": {}, "clan_bank": 0}
+else:
+    donations = {"donations": {}, "clan_bank": 0}
+    with open(DONATIONS_FILE, "w", encoding="utf-8") as f:
+        json.dump(donations, f, indent=2)
 
 def save_donations():
     with open(DONATIONS_FILE, "w", encoding="utf-8") as f:
         json.dump(donations, f, indent=2)
-
-donations = load_donations()
 
 def parse_amount(amount: str) -> int:
     amount = amount.lower().replace(",", "").strip()
@@ -158,7 +159,9 @@ async def drawwinner(ctx):
         await ctx.send("No entries.")
         return
     winner = random.choices(list(raffle_entries.keys()), weights=raffle_entries.values(), k=1)[0]
-    await ctx.send(f"🎉 Winner: **{user_display_names.get(winner,winner)}** ({raffle_entries[winner]} tickets)")
+    await ctx.send(
+        f"🎉 Winner: **{user_display_names.get(winner, winner)}** ({raffle_entries[winner]} tickets)"
+    )
 
 @bot.command()
 async def reset(ctx):
@@ -167,10 +170,28 @@ async def reset(ctx):
     save_entries()
     await ctx.send("✅ Raffle reset.")
 
+@bot.command()
+async def removele(ctx):
+    global last_batch
+    if not last_batch:
+        await ctx.send("❌ No previous batch.")
+        return
+    summary = []
+    for name in set(last_batch):
+        count = last_batch.count(name)
+        remove_ticket(name, count)
+        summary.append(f"{user_display_names.get(name, name)}: -{count}")
+    last_batch = []
+    save_entries()
+    await ctx.send("❌ **Last batch removed:**\n```" + "\n".join(summary) + "```")
+
 # ================== DONATION COMMANDS ==================
 @bot.command()
 async def adddn(ctx, arg1: str, arg2: str = None):
-    global donations
+    """
+    Add a donation to a user and update clan bank.
+    Usage: !adddn @User 500k or !adddn Username 500k
+    """
     amount = None
     username = None
 
@@ -201,7 +222,7 @@ async def adddn(ctx, arg1: str, arg2: str = None):
 
     key = username.lower()
     donations["donations"][key] = donations["donations"].get(key,0) + value
-    donations["clan_bank"] += value
+    donations["clan_bank"] = donations.get("clan_bank",0) + value
     save_donations()
 
     await ctx.send(
@@ -213,14 +234,47 @@ async def adddn(ctx, arg1: str, arg2: str = None):
     )
 
 @bot.command()
-async def donations(ctx, member: discord.Member = None):
-    global donations
-    if member:
-        key = member.display_name.lower()
-        user_total = donations["donations"].get(key, 0)
-        await ctx.send(f"💰 {member.display_name} has donated `{user_total:,}` gp")
-    else:
-        await ctx.send(f"💰 Clan Bank Total: `{donations['clan_bank']:,}` gp")
+async def donations(ctx):
+    await ctx.send(f"💰 Clan Bank Total: `{donations.get('clan_bank',0):,}` gp")
+
+# ================== PASTE COMMAND ==================
+@bot.command(name="p")
+@commands.has_permissions(administrator=True)
+async def paste_entries(ctx):
+    """
+    Paste raffle entries below the command.
+    Each line = 1 ticket.
+    Usage: !p <paste entries>
+    """
+    global raffle_entries, user_display_names, last_batch
+
+    lines = ctx.message.content.splitlines()[1:]  # skip command line
+
+    raffle_entries.clear()
+    user_display_names.clear()
+    last_batch = []
+
+    restored = []
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        name = line.split(":")[0].split("|")[0].strip()
+        if len(name) < 2:
+            continue
+        key = name.lower()
+        raffle_entries[key] = raffle_entries.get(key,0) + 1
+        user_display_names[key] = name
+        last_batch.append(key)
+        restored.append(name)
+
+    save_entries()
+
+    await ctx.send(
+        f"✅ Raffle entries restored ({len(restored)} tickets):\n" +
+        "\n".join(f"{n}: 1 ticket" for n in restored)
+    )
 
 # ================== START ==================
 bot.run(DISCORD_TOKEN)
