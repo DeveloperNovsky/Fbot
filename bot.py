@@ -27,16 +27,15 @@ def load_entries():
     if not os.path.exists(RAFFLE_FILE):
         return {}, {}
     with open(RAFFLE_FILE, "r", encoding="utf-8") as f:
-        data = json.load(f)
-        return data.get("raffle_entries", {}), data.get("display_names", {})
+        try:
+            data = json.load(f)
+            return data.get("raffle_entries", {}), data.get("display_names", {})
+        except json.JSONDecodeError:
+            return {}, {}
 
-def save_entries(entries=None, display_names=None):
-    if entries is None:
-        entries = raffle_entries
-    if display_names is None:
-        display_names = user_display_names
+def save_entries():
     with open(RAFFLE_FILE, "w", encoding="utf-8") as f:
-        json.dump({"raffle_entries": entries, "display_names": display_names}, f, indent=2)
+        json.dump({"raffle_entries": raffle_entries, "display_names": user_display_names}, f, indent=2)
 
 raffle_entries, user_display_names = load_entries()
 last_batch = []
@@ -59,26 +58,25 @@ def remove_ticket(username, amount=1):
     return False
 
 # ================== DONATIONS DATA ==================
-# Load donations at startup
-if os.path.exists(DONATIONS_FILE):
+def load_donations():
+    if not os.path.exists(DONATIONS_FILE):
+        return {"donations": {}, "clan_bank": 0}
     with open(DONATIONS_FILE, "r", encoding="utf-8") as f:
         try:
-            donations = json.load(f)
-            if "donations" not in donations:
-                donations["donations"] = {}
-            if "clan_bank" not in donations:
-                donations["clan_bank"] = 0
+            data = json.load(f)
+            if "donations" not in data:
+                data["donations"] = {}
+            if "clan_bank" not in data:
+                data["clan_bank"] = 0
+            return data
         except json.JSONDecodeError:
-            donations = {"donations": {}, "clan_bank": 0}
-else:
-    donations = {"donations": {}, "clan_bank": 0}
+            return {"donations": {}, "clan_bank": 0}
+
+def save_donations():
     with open(DONATIONS_FILE, "w", encoding="utf-8") as f:
         json.dump(donations, f, indent=2)
 
-def save_donations():
-    global donations
-    with open(DONATIONS_FILE, "w", encoding="utf-8") as f:
-        json.dump(donations, f, indent=2)
+donations = load_donations()
 
 def parse_amount(amount: str) -> int:
     amount = amount.lower().replace(",", "").strip()
@@ -151,9 +149,7 @@ async def removet(ctx, *args):
 @bot.command()
 async def entries(ctx):
     total = sum(raffle_entries.values())
-    summary = "\n".join(
-        f"{user_display_names.get(k,k)}: {v} ticket(s)" for k,v in raffle_entries.items()
-    )
+    summary = "\n".join(f"{user_display_names.get(k,k)}: {v} ticket(s)" for k,v in raffle_entries.items())
     await ctx.send(f"🎟️ Entries ({total} total):\n```{summary}```")
 
 @bot.command()
@@ -174,10 +170,6 @@ async def reset(ctx):
 # ================== DONATION COMMANDS ==================
 @bot.command()
 async def adddn(ctx, arg1: str, arg2: str = None):
-    """
-    Add a donation to a user and update clan bank.
-    Usage: !adddn @User 500k or !adddn Username 500k
-    """
     global donations
     amount = None
     username = None
@@ -221,9 +213,14 @@ async def adddn(ctx, arg1: str, arg2: str = None):
     )
 
 @bot.command()
-async def donations(ctx):
+async def donations(ctx, member: discord.Member = None):
     global donations
-    await ctx.send(f"💰 Clan Bank Total: `{donations['clan_bank']:,}` gp")
+    if member:
+        key = member.display_name.lower()
+        user_total = donations["donations"].get(key, 0)
+        await ctx.send(f"💰 {member.display_name} has donated `{user_total:,}` gp")
+    else:
+        await ctx.send(f"💰 Clan Bank Total: `{donations['clan_bank']:,}` gp")
 
 # ================== START ==================
 bot.run(DISCORD_TOKEN)
