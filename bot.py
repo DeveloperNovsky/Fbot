@@ -21,6 +21,25 @@ ALLOWED_CHANNELS = [1033249948084477982]
 
 os.makedirs("/data", exist_ok=True)
 
+DONATION_ROLES = [
+    (1_000_000, "Bronze - 1M Donation"),
+    (3_000_000, "Iron - 3M Donation"),
+    (5_000_000, "Steel - 5M Donation"),
+    (10_000_000, "Black - 10M Donation"),
+    (20_000_000, "Mithril - 20M Donation"),
+    (50_000_000, "Adamant - 50M Donation"),
+    (100_000_000, "Rune - 100M Donation"),
+    (200_000_000, "Gilded - 200M Donation"),
+    (300_000_000, "Dragon - 300M Donation"),
+    (500_000_000, "3rd Age - 500M Donation"),
+    (750_000_000, "Spectral - 750M Donation"),
+    (1_000_000_000, "Arcane - 1B Donation"),
+    (1_500_000_000, "Elysian - 1.5B Donation"),
+    (2_000_000_000, "Elder - 2B Donation"),
+    (3_000_000_000, "Kodai - 3B Donation"),
+    (4_000_000_000, "Twisted - 4B Donation"),
+]
+
 # ================== RAFFLE DATA ==================
 def load_entries():
     if not os.path.exists(RAFFLE_FILE):
@@ -308,7 +327,7 @@ async def adddn(ctx, arg1: str, arg2: str = None):
     username = None
     member = None
 
-    # -------- Parse user + amount --------
+    # Mention support
     if ctx.message.mentions:
         member = ctx.message.mentions[0]
         username = member.display_name
@@ -333,14 +352,12 @@ async def adddn(ctx, arg1: str, arg2: str = None):
         await ctx.send("❌ Usage: !adddn <user> <amount>")
         return
 
-    # -------- Parse amount --------
     try:
         value = parse_amount(amount)
     except ValueError:
         await ctx.send("❌ Invalid amount. Use 10m / 500k / 1b")
         return
 
-    # -------- Save donation --------
     key = username.lower()
     donations_data["donations"][key] = donations_data["donations"].get(key, 0) + value
     donations_data["clan_bank"] += value
@@ -348,21 +365,25 @@ async def adddn(ctx, arg1: str, arg2: str = None):
 
     total_donated = donations_data["donations"][key]
 
-    # -------- Role assignment --------
-    role_awarded = None
+    awarded_role = None
 
+    # ===== ROLE HANDLING =====
     if member:
-        adamant_role = discord.utils.get(
-            ctx.guild.roles,
-            name="Adamant - 50M Donation"
-        )
+        # Find highest role they qualify for
+        for threshold, role_name in reversed(DONATION_ROLES):
+            if total_donated >= threshold:
+                role = discord.utils.get(ctx.guild.roles, name=role_name)
+                if role and role not in member.roles:
+                    # Remove lower donation roles
+                    for _, lower_role_name in DONATION_ROLES:
+                        lower_role = discord.utils.get(ctx.guild.roles, name=lower_role_name)
+                        if lower_role and lower_role in member.roles:
+                            await member.remove_roles(lower_role)
 
-        if adamant_role and total_donated >= 50_000_000:
-            if adamant_role not in member.roles:
-                await member.add_roles(adamant_role)
-                role_awarded = adamant_role.name
+                    await member.add_roles(role)
+                    awarded_role = role.name
+                break
 
-    # -------- Response --------
     message = (
         f"💰 **Donation Added**\n"
         f"User: **{username}**\n"
@@ -371,11 +392,10 @@ async def adddn(ctx, arg1: str, arg2: str = None):
         f"Clan Bank: `{donations_data['clan_bank']:,}` gp"
     )
 
-    if role_awarded:
-        message += f"\n🏅 **Role Awarded:** `{role_awarded}`"
+    if awarded_role:
+        message += f"\n🏅 **New Rank Awarded:** `{awarded_role}`"
 
     await ctx.send(message)
-
 
 @bot.command()
 async def donations(ctx):
@@ -383,5 +403,6 @@ async def donations(ctx):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
 
 
