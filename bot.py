@@ -13,17 +13,20 @@ intents.guilds = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
 # ================== FILE PATHS ==================
-RAFFLE_FILE = os.path.join(BASE_DIR, "raffle_entries.json")
-DONATIONS_FILE = "/data/donations.json"  # Persisted on Railway volume
+DATA_DIR = "/data"
+os.makedirs(DATA_DIR, exist_ok=True)
+
+RAFFLE_FILE = os.path.join(DATA_DIR, "raffle_entries.json")
+DONATIONS_FILE = os.path.join(DATA_DIR, "donations.json")
 
 ALLOWED_CHANNELS = [1033249948084477982]
 
 # ================== RAFFLE DATA ==================
 def load_entries():
     if not os.path.exists(RAFFLE_FILE):
+        with open(RAFFLE_FILE, "w", encoding="utf-8") as f:
+            json.dump({"raffle_entries": {}, "display_names": {}}, f)
         return {}, {}
     with open(RAFFLE_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -60,30 +63,26 @@ def remove_ticket(username, amount=1):
 
 # ================== DONATIONS DATA ==================
 def load_donations():
-    if os.path.exists(DONATIONS_FILE):
-        with open(DONATIONS_FILE, "r", encoding="utf-8") as f:
-            try:
-                data = json.load(f)
-                if "donations" not in data:
-                    data["donations"] = {}
-                if "clan_bank" not in data:
-                    data["clan_bank"] = 0
-                return data
-            except json.JSONDecodeError:
-                return {"donations": {}, "clan_bank": 0}
-    else:
-        data = {"donations": {}, "clan_bank": 0}
-        os.makedirs("/data", exist_ok=True)
+    if not os.path.exists(DONATIONS_FILE):
         with open(DONATIONS_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-        return data
+            json.dump({"donations": {}, "clan_bank": 0}, f)
+        return {"donations": {}, "clan_bank": 0}
+    with open(DONATIONS_FILE, "r", encoding="utf-8") as f:
+        try:
+            data = json.load(f)
+            if "donations" not in data:
+                data["donations"] = {}
+            if "clan_bank" not in data:
+                data["clan_bank"] = 0
+            return data
+        except json.JSONDecodeError:
+            return {"donations": {}, "clan_bank": 0}
 
 def save_donations(data):
-    os.makedirs("/data", exist_ok=True)
     with open(DONATIONS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
-donations_data = load_donations()
+donations = load_donations()  # Loaded once at startup
 
 def parse_amount(amount: str) -> int:
     amount = amount.lower().replace(",", "").strip()
@@ -104,6 +103,7 @@ async def adddn(ctx, arg1: str, arg2: str = None):
     Add a donation to a user and update clan bank.
     Usage: !adddn @User 500k or !adddn Username 500k
     """
+    global donations
     amount = None
     username = None
 
@@ -133,21 +133,24 @@ async def adddn(ctx, arg1: str, arg2: str = None):
         return
 
     key = username.lower()
-    donations_data["donations"][key] = donations_data["donations"].get(key, 0) + value
-    donations_data["clan_bank"] += value
-    save_donations(donations_data)
+    donations["donations"][key] = donations["donations"].get(key, 0) + value
+    donations["clan_bank"] += value
+    save_donations(donations)
 
     await ctx.send(
         f"💰 **Donation Added**\n"
         f"User: **{username}**\n"
         f"Amount: `{value:,}` gp\n"
-        f"Donation Clan Bank: `{donations_data['donations'][key]:,}` gp\n"
-        f"Clan Bank: `{donations_data['clan_bank']:,}` gp"
+        f"Donation Clan Bank: `{donations['donations'][key]:,}` gp\n"
+        f"Clan Bank: `{donations['clan_bank']:,}` gp"
     )
 
 @bot.command()
 async def donations(ctx):
-    await ctx.send(f"💰 Clan Bank Total: `{donations_data['clan_bank']:,}` gp")
+    """
+    Show clan bank total
+    """
+    await ctx.send(f"💰 Clan Bank Total: `{donations['clan_bank']:,}` gp")
 
 # ================== EVENTS ==================
 @bot.event
@@ -232,9 +235,5 @@ async def reset(ctx):
     save_entries()
     await ctx.send("✅ Raffle reset.")
 
-# ================== START BOT ==================
+# ================== START ==================
 bot.run(DISCORD_TOKEN)
-
-
-
-
