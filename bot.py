@@ -59,7 +59,6 @@ def remove_ticket(username, amount=1):
     return False
 
 # ================== DONATIONS DATA ==================
-# Load donations at startup
 if os.path.exists(DONATIONS_FILE):
     with open(DONATIONS_FILE, "r", encoding="utf-8") as f:
         try:
@@ -159,9 +158,7 @@ async def drawwinner(ctx):
         await ctx.send("No entries.")
         return
     winner = random.choices(list(raffle_entries.keys()), weights=raffle_entries.values(), k=1)[0]
-    await ctx.send(
-        f"🎉 Winner: **{user_display_names.get(winner, winner)}** ({raffle_entries[winner]} tickets)"
-    )
+    await ctx.send(f"🎉 Winner: **{user_display_names.get(winner,winner)}** ({raffle_entries[winner]} tickets)")
 
 @bot.command()
 async def reset(ctx):
@@ -170,20 +167,34 @@ async def reset(ctx):
     save_entries()
     await ctx.send("✅ Raffle reset.")
 
-@bot.command()
-async def removele(ctx):
+# ================== PASTE COMMAND (!p) ==================
+@bot.command(name="p")
+@commands.has_permissions(administrator=True)
+async def paste_entries(ctx):
+    """
+    Paste raffle entries below the command.
+    Each line = 1 ticket added to the user's total.
+    """
     global last_batch
-    if not last_batch:
-        await ctx.send("❌ No previous batch.")
-        return
-    summary = []
-    for name in set(last_batch):
-        count = last_batch.count(name)
-        remove_ticket(name, count)
-        summary.append(f"{user_display_names.get(name, name)}: -{count}")
+
+    lines = ctx.message.content.splitlines()[1:]  # skip the command line
+    added_count = 0
     last_batch = []
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        name = line.split(":")[0].split("|")[0].strip()
+        if len(name) < 2:
+            continue
+        key = name.lower()
+        add_ticket(key, name, 1)
+        last_batch.append(key)
+        added_count += 1
+
     save_entries()
-    await ctx.send("❌ **Last batch removed:**\n```" + "\n".join(summary) + "```")
+    await ctx.send(f"✅ Raffle entries updated: {added_count} ticket(s) added.")
 
 # ================== DONATION COMMANDS ==================
 @bot.command()
@@ -235,46 +246,8 @@ async def adddn(ctx, arg1: str, arg2: str = None):
 
 @bot.command()
 async def donations(ctx):
-    await ctx.send(f"💰 Clan Bank Total: `{donations.get('clan_bank',0):,}` gp")
-
-# ================== PASTE COMMAND ==================
-@bot.command(name="p")
-@commands.has_permissions(administrator=True)
-async def paste_entries(ctx):
-    """
-    Paste raffle entries below the command.
-    Each line = 1 ticket.
-    Usage: !p <paste entries>
-    """
-    global raffle_entries, user_display_names, last_batch
-
-    lines = ctx.message.content.splitlines()[1:]  # skip command line
-
-    raffle_entries.clear()
-    user_display_names.clear()
-    last_batch = []
-
-    restored = []
-
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-        name = line.split(":")[0].split("|")[0].strip()
-        if len(name) < 2:
-            continue
-        key = name.lower()
-        raffle_entries[key] = raffle_entries.get(key,0) + 1
-        user_display_names[key] = name
-        last_batch.append(key)
-        restored.append(name)
-
-    save_entries()
-
-    await ctx.send(
-        f"✅ Raffle entries restored ({len(restored)} tickets):\n" +
-        "\n".join(f"{n}: 1 ticket" for n in restored)
-    )
+    total = donations.get("clan_bank", 0)
+    await ctx.send(f"💰 Clan Bank Total: `{total:,}` gp")
 
 # ================== START ==================
 bot.run(DISCORD_TOKEN)
