@@ -13,29 +13,34 @@ intents.guilds = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# ================== DATA PATH (Railway volume) ==================
+DATA_DIR = "/data"
+os.makedirs(DATA_DIR, exist_ok=True)
 
-# ================== FILE PATHS ==================
-RAFFLE_FILE = os.path.join(BASE_DIR, "raffle_entries.json")
-DONATIONS_FILE = "/data/donations.json"  # Persisted on Railway volume
+RAFFLE_FILE = "/data/raffle_entries.json"     # Persisted on Railway volume
+DONATIONS_FILE = "/data/donations.json"       # Persisted on Railway volume
 
 ALLOWED_CHANNELS = [1033249948084477982]
 
 # ================== RAFFLE DATA ==================
 def load_entries():
     if not os.path.exists(RAFFLE_FILE):
+        data = {"raffle_entries": {}, "display_names": {}}
+        with open(RAFFLE_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
         return {}, {}
+
     with open(RAFFLE_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
         return data.get("raffle_entries", {}), data.get("display_names", {})
 
-def save_entries(entries=None, display_names=None):
-    if entries is None:
-        entries = raffle_entries
-    if display_names is None:
-        display_names = user_display_names
+def save_entries():
     with open(RAFFLE_FILE, "w", encoding="utf-8") as f:
-        json.dump({"raffle_entries": entries, "display_names": display_names}, f, indent=2)
+        json.dump(
+            {"raffle_entries": raffle_entries, "display_names": user_display_names},
+            f,
+            indent=2
+        )
 
 raffle_entries, user_display_names = load_entries()
 last_batch = []
@@ -64,22 +69,18 @@ def load_donations():
         with open(DONATIONS_FILE, "r", encoding="utf-8") as f:
             try:
                 data = json.load(f)
-                if "donations" not in data:
-                    data["donations"] = {}
-                if "clan_bank" not in data:
-                    data["clan_bank"] = 0
+                data.setdefault("donations", {})
+                data.setdefault("clan_bank", 0)
                 return data
             except json.JSONDecodeError:
                 return {"donations": {}, "clan_bank": 0}
     else:
         data = {"donations": {}, "clan_bank": 0}
-        os.makedirs("/data", exist_ok=True)
         with open(DONATIONS_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
         return data
 
 def save_donations(data):
-    os.makedirs("/data", exist_ok=True)
     with open(DONATIONS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
@@ -100,10 +101,6 @@ def parse_amount(amount: str) -> int:
 # ================== DONATIONS COMMANDS ==================
 @bot.command()
 async def adddn(ctx, arg1: str, arg2: str = None):
-    """
-    Add a donation to a user and update clan bank.
-    Usage: !adddn @User 500k or !adddn Username 500k
-    """
     amount = None
     username = None
 
@@ -115,7 +112,7 @@ async def adddn(ctx, arg1: str, arg2: str = None):
                 amount = part
                 break
     else:
-        if arg1.lower().endswith(("k", "m", "b")) or arg1.replace(",", "").isdigit():
+        if arg1 and (arg1.lower().endswith(("k", "m", "b")) or arg1.replace(",", "").isdigit()):
             amount = arg1
             username = arg2
         else:
@@ -183,7 +180,7 @@ async def addt(ctx, *args):
             name_parts.append(arg)
 
     save_entries()
-    await ctx.send(f"✅ Tickets added.\n```" + "\n".join(summary) + "```")
+    await ctx.send("✅ Tickets added\n```" + "\n".join(summary) + "```")
 
 @bot.command()
 async def removet(ctx, *args):
@@ -203,7 +200,7 @@ async def removet(ctx, *args):
             name_parts.append(arg)
 
     save_entries()
-    await ctx.send(f"❌ Tickets removed.\n```" + "\n".join(summary) + "```")
+    await ctx.send("❌ Tickets removed\n```" + "\n".join(summary) + "```")
 
 @bot.command()
 async def entries(ctx):
