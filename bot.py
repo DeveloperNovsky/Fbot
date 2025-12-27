@@ -13,11 +13,11 @@ intents.guilds = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ================== DATA FILES ==================
-RAFFLE_FILE = "/data/raffle_entries.json"    # Persisted on Railway volume
-DONATIONS_FILE = "/data/donations.json"      # Persisted on Railway volume
+# ================== FILE PATHS ==================
+RAFFLE_FILE = "/data/raffle_entries.json"     # Persisted on Railway volume
+DONATIONS_FILE = "/data/donations.json"       # Persisted on Railway volume
 
-ALLOWED_CHANNELS = [1033249948084477982]  # Replace with your channel ID
+ALLOWED_CHANNELS = [1033249948084477982]
 
 os.makedirs("/data", exist_ok=True)
 
@@ -31,14 +31,19 @@ def load_entries():
 
 def save_entries():
     with open(RAFFLE_FILE, "w", encoding="utf-8") as f:
-        json.dump({
-            "raffle_entries": raffle_entries,
-            "display_names": user_display_names
-        }, f, indent=2)
+        json.dump(
+            {
+                "raffle_entries": raffle_entries,
+                "display_names": user_display_names
+            },
+            f,
+            indent=2
+        )
 
 raffle_entries, user_display_names = load_entries()
 last_batch = []
 
+# ================== RAFFLE HELPERS ==================
 def add_ticket(username, display_name=None, amount=1):
     key = username.lower()
     raffle_entries[key] = raffle_entries.get(key, 0) + amount
@@ -104,8 +109,6 @@ async def on_message(message):
 # ================== RAFFLE COMMANDS ==================
 @bot.command()
 async def addt(ctx, *args):
-    global last_batch
-    last_batch = []
     name_parts = []
     summary = []
 
@@ -114,14 +117,13 @@ async def addt(ctx, *args):
             tickets = int(arg)
             name = " ".join(name_parts)
             add_ticket(name, name, tickets)
-            last_batch.extend([name.lower()] * tickets)
             summary.append(f"{name}: +{tickets}")
             name_parts = []
         else:
             name_parts.append(arg)
 
     save_entries()
-    await ctx.send(f"✅ Tickets added:\n```" + "\n".join(summary) + "```")
+    await ctx.send("✅ Tickets added:\n```" + "\n".join(summary) + "```")
 
 @bot.command()
 async def removet(ctx, *args):
@@ -139,7 +141,7 @@ async def removet(ctx, *args):
             name_parts.append(arg)
 
     save_entries()
-    await ctx.send(f"❌ Tickets removed:\n```" + "\n".join(summary) + "```")
+    await ctx.send("❌ Tickets removed:\n```" + "\n".join(summary) + "```")
 
 @bot.command()
 async def entries(ctx):
@@ -182,10 +184,10 @@ async def reset(ctx):
     save_entries()
     await ctx.send("✅ Raffle reset.")
 
-# ================== FIXED PASTE COMMAND ==================
+# ================== ✅ FIXED PASTE COMMAND ==================
 @bot.command()
 async def p(ctx):
-    """Paste raid log – adds +1 ticket per name"""
+    """Paste raid log – adds tickets per name; supports optional :count"""
     global last_batch
     last_batch = []
 
@@ -196,17 +198,30 @@ async def p(ctx):
     added = []
 
     for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+
         if "|" in line:
-            name = line.split("|")[0].strip()
+            line = line.split("|")[0].strip()
+
+        if ":" in line:
+            parts = line.split(":")
+            name = parts[0].strip()
+            try:
+                count = int(parts[1].strip())
+            except ValueError:
+                count = 1
         else:
-            name = line.strip()
+            name = line
+            count = 1
 
         if not name:
             continue
 
-        add_ticket(name, name, 1)
-        last_batch.append(name.lower())
-        added.append(name)
+        add_ticket(name, name, count)
+        last_batch.extend([name.lower()] * count)
+        added.append(f"{name}: {count}")
 
     save_entries()
 
@@ -215,28 +230,15 @@ async def p(ctx):
         return
 
     await ctx.send(
-        f"✅ Added **{len(added)}** raffle tickets:\n```" +
+        f"✅ Added **{sum(int(x.split(':')[1].strip()) for x in added)}** raffle tickets:\n```" +
         "\n".join(added) +
         "```"
     )
 
-# ================== REMOVE LAST BATCH ==================
-@bot.command()
-async def removele(ctx):
-    if not last_batch:
-        await ctx.send("❌ No previous batch to remove.")
-        return
-
-    for key in last_batch:
-        remove_ticket(key, 1)
-    save_entries()
-    await ctx.send(f"❌ Last batch removed ({len(last_batch)} tickets).")
-    last_batch.clear()
-
-# ================== RESTORE COMMAND ==================
+# ================== ✅ RESTORE COMMAND ==================
 @bot.command()
 async def restore(ctx):
-    """Restore raffle entries from copy-paste"""
+    """Restore raffle entries from copy-paste with exact ticket counts"""
     content = ctx.message.content
     content = content[len(ctx.prefix + ctx.command.name):].strip()
     lines = content.splitlines()
@@ -246,17 +248,24 @@ async def restore(ctx):
     last_batch = []
 
     for line in lines:
-        if "|" in line:
-            name = line.split("|")[0].strip()
-        else:
-            name = line.split(":")[0].strip()  # clean formatting
-
-        if not name:
+        line = line.strip()
+        if not line:
             continue
 
-        add_ticket(name, name, 1)
-        last_batch.append(name.lower())
-        restored.append(name)
+        if ":" in line:
+            parts = line.split(":")
+            name = parts[0].strip()
+            try:
+                count = int(parts[1].strip())
+            except ValueError:
+                count = 1
+        else:
+            name = line
+            count = 1
+
+        add_ticket(name, name, count)
+        last_batch.extend([name.lower()] * count)
+        restored.append(f"{name}: {count}")
 
     save_entries()
 
@@ -265,10 +274,32 @@ async def restore(ctx):
         return
 
     await ctx.send(
-        f"✅ Raffle entries restored ({len(restored)} tickets):\n```" +
+        f"✅ Raffle entries restored ({sum(int(x.split(':')[1].strip()) for x in restored)} tickets):\n```" +
         "\n".join(restored) +
         "```"
     )
+
+# ================== REMOVE LAST BATCH ==================
+@bot.command()
+async def removele(ctx):
+    """Remove the last batch of pasted tickets"""
+    global last_batch
+    if not last_batch:
+        await ctx.send("❌ No previous paste batch to remove.")
+        return
+
+    summary = []
+    for key in last_batch:
+        if key in raffle_entries:
+            raffle_entries[key] -= 1
+            if raffle_entries[key] <= 0:
+                raffle_entries.pop(key)
+                user_display_names.pop(key, None)
+            summary.append(key)
+
+    save_entries()
+    last_batch = []
+    await ctx.send(f"❌ Last batch removed:\n```" + "\n".join(summary) + "```")
 
 # ================== DONATION COMMANDS ==================
 @bot.command()
@@ -320,5 +351,3 @@ async def donations(ctx):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
-
-
