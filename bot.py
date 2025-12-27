@@ -149,16 +149,26 @@ async def removet(ctx, *args):
 
 @bot.command()
 async def entries(ctx):
-    # Load raffle entries directly from file to ensure persistence
+    # Load from persisted JSON so entries survive restarts
     if os.path.exists(RAFFLE_FILE):
         with open(RAFFLE_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
             raffle_entries_loaded = data.get("raffle_entries", {})
+            display_names_loaded = data.get("display_names", {})
     else:
         raffle_entries_loaded = {}
+        display_names_loaded = {}
 
     total = sum(raffle_entries_loaded.values())
-    await ctx.send(f"🎟️ Entries ({total} total)")
+
+    if raffle_entries_loaded:
+        summary = "\n".join(
+            f"{display_names_loaded.get(k, k)}: {v} ticket(s)"
+            for k, v in raffle_entries_loaded.items()
+        )
+        await ctx.send(f"🎟️ **Entries ({total} total):**\n```{summary}```")
+    else:
+        await ctx.send(f"🎟️ Entries ({total} total)")
 
 @bot.command()
 async def drawwinner(ctx):
@@ -180,10 +190,6 @@ async def reset(ctx):
 # ================== DONATION COMMANDS ==================
 @bot.command()
 async def adddn(ctx, arg1: str, arg2: str = None):
-    """
-    Add a donation to a user and update clan bank.
-    Usage: !adddn @User 500k or !adddn Username 500k
-    """
     amount = None
     username = None
 
@@ -227,18 +233,11 @@ async def adddn(ctx, arg1: str, arg2: str = None):
 
 @bot.command()
 async def donations(ctx):
-    # Load donations from /data to ensure latest values
-    if os.path.exists(DONATIONS_FILE):
-        with open(DONATIONS_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            clan_bank_total = data.get("clan_bank", 0)
-    else:
-        clan_bank_total = 0
-
-    await ctx.send(f"💰 Clan Bank Total: `{clan_bank_total:,}` gp")
+    await ctx.send(f"💰 Clan Bank Total: `{donations['clan_bank']:,}` gp")
 
 # ================== START ==================
 bot.run(DISCORD_TOKEN)
+
 
 
 
