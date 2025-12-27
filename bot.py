@@ -13,14 +13,14 @@ intents.guilds = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ================== DATA DIR ==================
-DATA_DIR = "/data"  # Railway persistent volume
-os.makedirs(DATA_DIR, exist_ok=True)
-
-RAFFLE_FILE = os.path.join(DATA_DIR, "raffle_entries.json")
-DONATIONS_FILE = os.path.join(DATA_DIR, "donations.json")
+# ================== DATA FILES ==================
+RAFFLE_FILE = "/data/raffle_entries.json"    # Persisted on Railway volume
+DONATIONS_FILE = "/data/donations.json"      # Persisted on Railway volume
 
 ALLOWED_CHANNELS = [1033249948084477982]  # Replace with your channel ID
+
+# Ensure /data directory exists
+os.makedirs("/data", exist_ok=True)
 
 # ================== RAFFLE DATA ==================
 def load_entries():
@@ -223,5 +223,3 @@ async def donations(ctx):
 
 # ================== START ==================
 bot.run(DISCORD_TOKEN)
-
-
