@@ -1,8 +1,10 @@
 import os
 import json
 import random
+import sqlite3
 import discord
 from discord.ext import commands
+from pathlib import Path
 
 # ================== CONFIG ==================
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
@@ -13,16 +15,16 @@ intents.guilds = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = Path(__file__).parent
 
-RAFFLE_FILE = os.path.join(BASE_DIR, "raffle_entries.json")
-DONATIONS_FILE = os.path.join(BASE_DIR, "donations.json")
+RAFFLE_FILE = BASE_DIR / "raffle_entries.json"
+DB_FILE = BASE_DIR / "donations.db"
 
 ALLOWED_CHANNELS = [1033249948084477982]
 
 # ================== RAFFLE DATA ==================
 def load_entries():
-    if not os.path.exists(RAFFLE_FILE):
+    if not RAFFLE_FILE.exists():
         return {}, {}
     with open(RAFFLE_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -34,11 +36,7 @@ def save_entries(entries=None, display_names=None):
     if display_names is None:
         display_names = user_display_names
     with open(RAFFLE_FILE, "w", encoding="utf-8") as f:
-        json.dump(
-            {"raffle_entries": entries, "display_names": display_names},
-            f,
-            indent=2
-        )
+        json.dump({"raffle_entries": entries, "display_names": display_names}, f, indent=2)
 
 raffle_entries, user_display_names = load_entries()
 last_batch = []
@@ -61,23 +59,54 @@ def remove_ticket(username, amount=1):
         return True
     return False
 
-# ================== DONATIONS FIX ==================
-# Load donations at startup or create default
-if os.path.exists(DONATIONS_FILE):
-    with open(DONATIONS_FILE, "r", encoding="utf-8") as f:
-        try:
-            donations_data = json.load(f)
-        except json.JSONDecodeError:
-            donations_data = {"donations": {}, "clan_bank": 0}
-else:
-    donations_data = {"donations": {}, "clan_bank": 0}
-    with open(DONATIONS_FILE, "w", encoding="utf-8") as f:
-        json.dump(donations_data, f, indent=2)
+# ================== DONATIONS DATABASE ==================
+# Initialize SQLite database
+conn = sqlite3.connect(DB_FILE)
+c = conn.cursor()
+c.execute("""
+CREATE TABLE IF NOT EXISTS donations (
+    username TEXT PRIMARY KEY,
+    total_donated INTEGER
+)
+""")
+c.execute("""
+CREATE TABLE IF NOT EXISTS clan_bank (
+    id INTEGER PRIMARY KEY,
+    total INTEGER
+)
+""")
+# Ensure there's always one row for clan bank
+c.execute("INSERT OR IGNORE INTO clan_bank (id, total) VALUES (1, 0)")
+conn.commit()
+conn.close()
 
-def save_donations():
-    global donations_data
-    with open(DONATIONS_FILE, "w", encoding="utf-8") as f:
-        json.dump(donations_data, f, indent=2)
+def add_donation(username: str, amount: int):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    # Update user donation
+    c.execute("INSERT INTO donations (username, total_donated) VALUES (?, ?) "
+              "ON CONFLICT(username) DO UPDATE SET total_donated = total_donated + ?",
+              (username, amount, amount))
+    # Update clan bank
+    c.execute("UPDATE clan_bank SET total = total + ? WHERE id = 1", (amount,))
+    conn.commit()
+    conn.close()
+
+def get_user_donation(username: str) -> int:
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT total_donated FROM donations WHERE username = ?", (username,))
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else 0
+
+def get_clan_bank() -> int:
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT total FROM clan_bank WHERE id = 1")
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else 0
 
 def parse_amount(amount: str) -> int:
     amount = amount.lower().replace(",", "").strip()
@@ -174,7 +203,7 @@ async def reset(ctx):
     save_entries()
     await ctx.send("✅ Raffle reset.")
 
-# ================== DONATION COMMANDS ==================
+# ================== DONATIONS COMMANDS ==================
 @bot.command()
 async def adddn(ctx, arg1: str, arg2: str = None):
     """
@@ -209,26 +238,24 @@ async def adddn(ctx, arg1: str, arg2: str = None):
         await ctx.send("❌ Invalid amount. Use 10m / 500k / 1b")
         return
 
-    key = username.lower()
-    donations_data["donations"][key] = donations_data["donations"].get(key, 0) + value
-    donations_data["clan_bank"] += value
-    save_donations()
+    # Add donation
+    add_donation(username.lower(), value)
+    user_total = get_user_donation(username.lower())
+    clan_total = get_clan_bank()
 
     await ctx.send(
         f"💰 **Donation Added**\n"
         f"User: **{username}**\n"
         f"Amount: `{value:,}` gp\n"
-        f"Donation Clan Bank: `{donations_data['donations'][key]:,}` gp\n"
-        f"Clan Bank: `{donations_data['clan_bank']:,}` gp"
+        f"Donation Clan Bank: `{user_total:,}` gp\n"
+        f"Clan Bank: `{clan_total:,}` gp"
     )
 
 @bot.command()
 async def donations(ctx):
-    """
-    Show current clan bank total
-    """
-    await ctx.send(f"💰 Clan Bank Total: {donations_data['clan_bank']:,} gp")
+    total = get_clan_bank()
+    await ctx.send(f"💰 Clan Bank Total: `{total:,}` gp")
 
-# ================== START ==================
+# ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
 
