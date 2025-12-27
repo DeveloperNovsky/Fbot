@@ -6,17 +6,19 @@ from discord.ext import commands
 
 # ================== CONFIG ==================
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
+
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ================== FILE PATHS ==================
-RAFFLE_FILE = "/data/raffle_entries.json"    # Persisted on Railway volume
-DONATIONS_FILE = "/data/donations.json"      # Persisted on Railway volume
-ALLOWED_CHANNELS = [1033249948084477982]    # Replace with your channel ID
+RAFFLE_FILE = "/data/raffle_entries.json"     # Persisted on Railway volume
+DONATIONS_FILE = "/data/donations.json"       # Persisted on Railway volume
 
-# Ensure /data directory exists
+ALLOWED_CHANNELS = [1033249948084477982]
+
 os.makedirs("/data", exist_ok=True)
 
 # ================== RAFFLE DATA ==================
@@ -29,11 +31,19 @@ def load_entries():
 
 def save_entries():
     with open(RAFFLE_FILE, "w", encoding="utf-8") as f:
-        json.dump({"raffle_entries": raffle_entries, "display_names": user_display_names}, f, indent=2)
+        json.dump(
+            {
+                "raffle_entries": raffle_entries,
+                "display_names": user_display_names
+            },
+            f,
+            indent=2
+        )
 
 raffle_entries, user_display_names = load_entries()
 last_batch = []
 
+# ================== RAFFLE HELPERS ==================
 def add_ticket(username, display_name=None, amount=1):
     key = username.lower()
     raffle_entries[key] = raffle_entries.get(key, 0) + amount
@@ -99,8 +109,6 @@ async def on_message(message):
 # ================== RAFFLE COMMANDS ==================
 @bot.command()
 async def addt(ctx, *args):
-    global last_batch
-    last_batch = []
     name_parts = []
     summary = []
 
@@ -109,14 +117,13 @@ async def addt(ctx, *args):
             tickets = int(arg)
             name = " ".join(name_parts)
             add_ticket(name, name, tickets)
-            last_batch.extend([name.lower()] * tickets)
             summary.append(f"{name}: +{tickets}")
             name_parts = []
         else:
             name_parts.append(arg)
 
     save_entries()
-    await ctx.send(f"✅ Tickets added:\n```" + "\n".join(summary) + "```")
+    await ctx.send("✅ Tickets added:\n```" + "\n".join(summary) + "```")
 
 @bot.command()
 async def removet(ctx, *args):
@@ -134,7 +141,7 @@ async def removet(ctx, *args):
             name_parts.append(arg)
 
     save_entries()
-    await ctx.send(f"❌ Tickets removed:\n```" + "\n".join(summary) + "```")
+    await ctx.send("❌ Tickets removed:\n```" + "\n".join(summary) + "```")
 
 @bot.command()
 async def entries(ctx):
@@ -149,15 +156,26 @@ async def entries(ctx):
         lines.append(f"{name}: {count}")
         total += count
 
-    await ctx.send(f"🎟️ Entries ({total} total):\n```" + "\n".join(lines) + "```")
+    await ctx.send(
+        f"🎟️ Entries ({total} total):\n```" +
+        "\n".join(lines) +
+        "```"
+    )
 
 @bot.command()
 async def drawwinner(ctx):
     if not raffle_entries:
         await ctx.send("No entries.")
         return
-    winner = random.choices(list(raffle_entries.keys()), weights=raffle_entries.values(), k=1)[0]
-    await ctx.send(f"🎉 Winner: **{user_display_names.get(winner, winner)}** ({raffle_entries[winner]} tickets)")
+    winner = random.choices(
+        list(raffle_entries.keys()),
+        weights=raffle_entries.values(),
+        k=1
+    )[0]
+    await ctx.send(
+        f"🎉 Winner: **{user_display_names.get(winner, winner)}** "
+        f"({raffle_entries[winner]} tickets)"
+    )
 
 @bot.command()
 async def reset(ctx):
@@ -166,10 +184,50 @@ async def reset(ctx):
     save_entries()
     await ctx.send("✅ Raffle reset.")
 
-# ================== FIXED PASTE COMMAND ==================
+# ================== PASTE COMMAND ==================
 @bot.command()
 async def p(ctx):
     """Paste raid log – adds +1 ticket per name"""
+    global last_batch
+    last_batch = []
+
+    content = ctx.message.content[len(ctx.prefix + ctx.command.name):].strip()
+    lines = content.splitlines()
+
+    added = []
+
+    for line in lines:
+        if "|" in line:
+            name = line.split("|")[0].strip()
+        else:
+            name = line.strip()
+
+        if not name:
+            continue
+
+        add_ticket(name, name, 1)
+        last_batch.append(name.lower())
+        added.append(name)
+
+    save_entries()
+
+    if not added:
+        await ctx.send("❌ No valid names found.")
+        return
+
+    await ctx.send(
+        f"✅ Added **{len(added)}** raffle tickets:\n```" +
+        "\n".join(added) +
+        "```"
+    )
+
+# ================== RESTORE COMMAND ==================
+@bot.command()
+async def restore(ctx):
+    """
+    Restore raffle entries from a pasted list.
+    Each name gets 1 ticket added. Updates last_batch for !removele.
+    """
     global last_batch
     last_batch = []
 
@@ -192,26 +250,26 @@ async def p(ctx):
     save_entries()
 
     if not added:
-        await ctx.send("❌ No valid names found.")
+        await ctx.send("❌ No valid names found to restore.")
         return
 
-    await ctx.send(f"✅ Added **{len(added)}** raffle tickets:\n```" + "\n".join(added) + "```")
+    await ctx.send(f"✅ Restored **{len(added)}** raffle entries:\n```" + "\n".join(added) + "```")
 
-# ================== REMOVE LAST BATCH ==================
+# ================== REMOVE LAST ENTRY COMMAND ==================
 @bot.command()
 async def removele(ctx):
+    """Remove the last paste/restore batch"""
     global last_batch
     if not last_batch:
         await ctx.send("❌ No previous paste batch to remove.")
         return
-    removed_summary = []
+
     for key in last_batch:
-        if key in raffle_entries:
-            remove_ticket(key, 1)
-            removed_summary.append(user_display_names.get(key, key))
-    last_batch = []
+        remove_ticket(key, 1)
     save_entries()
-    await ctx.send(f"❌ Removed last paste batch:\n```" + "\n".join(removed_summary) + "```")
+
+    await ctx.send(f"❌ Removed last batch of {len(last_batch)} ticket(s).")
+    last_batch = []
 
 # ================== DONATION COMMANDS ==================
 @bot.command()
