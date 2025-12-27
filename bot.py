@@ -16,7 +16,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 RAFFLE_FILE = os.path.join(BASE_DIR, "raffle_entries.json")
-DONATIONS_FILE = "/data/donations.json"  # Persistent storage path
+DONATIONS_FILE = os.path.join(BASE_DIR, "donations.json")
 
 ALLOWED_CHANNELS = [1033249948084477982]
 
@@ -62,11 +62,7 @@ def remove_ticket(username, amount=1):
     return False
 
 # ================== DONATIONS ==================
-# Ensure /data exists
-if not os.path.exists("/data"):
-    os.makedirs("/data")
-
-# Load donations at startup or create file if missing
+# Load donations at startup
 if os.path.exists(DONATIONS_FILE):
     with open(DONATIONS_FILE, "r", encoding="utf-8") as f:
         try:
@@ -98,16 +94,9 @@ def parse_amount(amount: str) -> int:
         return int(amount)
     raise ValueError
 
-# ================== DONATION COMMANDS ==================
 @bot.command()
-async def adddn(ctx, arg1: str, arg2: str = None):
-    """
-    Add a donation to a user and update clan bank.
-    Usage: !adddn @User 500k or !adddn Username 500k
-    """
-    amount = None
-    username = None
-
+async def adddn(ctx, username: str = None, amount: str = None):
+    """Add a donation to a user and update clan bank."""
     # Handle mentions
     if ctx.message.mentions:
         user = ctx.message.mentions[0]
@@ -116,16 +105,8 @@ async def adddn(ctx, arg1: str, arg2: str = None):
             if part.lower().endswith(("k", "m", "b")) or part.replace(",", "").isdigit():
                 amount = part
                 break
-    else:
-        # Determine which argument is username vs amount
-        if arg1.lower().endswith(("k", "m", "b")) or arg1.replace(",", "").isdigit():
-            amount = arg1
-            username = arg2
-        else:
-            username = arg1
-            amount = arg2
 
-    if not amount or not username:
+    if not username or not amount:
         await ctx.send("❌ Usage: !adddn <user> <amount>")
         return
 
@@ -137,7 +118,7 @@ async def adddn(ctx, arg1: str, arg2: str = None):
 
     key = username.lower()
     donations["donations"][key] = donations["donations"].get(key, 0) + value
-    donations["clan_bank"] += value
+    donations["clan_bank"] = donations.get("clan_bank", 0) + value
     save_donations()
 
     await ctx.send(
@@ -151,12 +132,20 @@ async def adddn(ctx, arg1: str, arg2: str = None):
 @bot.command()
 async def donations(ctx):
     """Show clan bank total and each user’s total donated."""
-    user_totals = "\n".join(
-        f"{name}: {total:,} gp" for name, total in donations["donations"].items()
-    ) or "No donations yet."
+    # Reload donations from file each time
+    if os.path.exists(DONATIONS_FILE):
+        with open(DONATIONS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            total = data.get("clan_bank", 0)
+            user_totals = data.get("donations", {})
+    else:
+        total = 0
+        user_totals = {}
+
+    user_list = "\n".join(f"{name}: {value:,} gp" for name, value in user_totals.items()) or "No donations yet."
     await ctx.send(
-        f"💰 **Clan Bank Total:** `{donations['clan_bank']:,}` gp\n"
-        f"**User Donations:**\n{user_totals}"
+        f"💰 **Clan Bank Total:** `{total:,}` gp\n"
+        f"**User Donations:**\n{user_list}"
     )
 
 # ================== EVENTS ==================
