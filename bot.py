@@ -306,44 +306,76 @@ async def removele(ctx):
 async def adddn(ctx, arg1: str, arg2: str = None):
     amount = None
     username = None
+    member = None
 
+    # -------- Parse user + amount --------
     if ctx.message.mentions:
-        user = ctx.message.mentions[0]
-        username = user.display_name
+        member = ctx.message.mentions[0]
+        username = member.display_name
         for part in ctx.message.content.split():
-            if part.lower().endswith(("k","m","b")) or part.replace(",","").isdigit():
+            if part.lower().endswith(("k", "m", "b")) or part.replace(",", "").isdigit():
                 amount = part
                 break
     else:
-        if arg1.lower().endswith(("k","m","b")):
+        if arg1.lower().endswith(("k", "m", "b")) or arg1.replace(",", "").isdigit():
             amount = arg1
             username = arg2
         else:
             username = arg1
             amount = arg2
 
+        member = discord.utils.find(
+            lambda m: m.display_name.lower() == username.lower(),
+            ctx.guild.members
+        )
+
     if not amount or not username:
         await ctx.send("❌ Usage: !adddn <user> <amount>")
         return
 
+    # -------- Parse amount --------
     try:
         value = parse_amount(amount)
     except ValueError:
         await ctx.send("❌ Invalid amount. Use 10m / 500k / 1b")
         return
 
+    # -------- Save donation --------
     key = username.lower()
     donations_data["donations"][key] = donations_data["donations"].get(key, 0) + value
     donations_data["clan_bank"] += value
     save_donations()
 
-    await ctx.send(
+    total_donated = donations_data["donations"][key]
+
+    # -------- Role assignment --------
+    role_awarded = None
+
+    if member:
+        adamant_role = discord.utils.get(
+            ctx.guild.roles,
+            name="Adamant - 50M Donation"
+        )
+
+        if adamant_role and total_donated >= 50_000_000:
+            if adamant_role not in member.roles:
+                await member.add_roles(adamant_role)
+                role_awarded = adamant_role.name
+
+    # -------- Response --------
+    message = (
         f"💰 **Donation Added**\n"
         f"User: **{username}**\n"
         f"Amount Credited: `{value:,}` gp\n"
-        f"Total Donation to Clan Bank: `{donations_data['donations'][key]:,}` gp\n"
+        f"Total Donation to Clan Bank: `{total_donated:,}` gp\n"
         f"Clan Bank: `{donations_data['clan_bank']:,}` gp"
     )
+
+    if role_awarded:
+        message += f"\n🏅 **Role Awarded:** `{role_awarded}`"
+
+    await ctx.send(message)
+
 
 @bot.command()
 async def donations(ctx):
@@ -351,4 +383,5 @@ async def donations(ctx):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
 
