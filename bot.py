@@ -61,7 +61,7 @@ def remove_ticket(username, amount=1):
         return True
     return False
 
-# ================== DONATIONS ==================
+# ================== DONATIONS DATA ==================
 # Load donations at startup
 if os.path.exists(DONATIONS_FILE):
     with open(DONATIONS_FILE, "r", encoding="utf-8") as f:
@@ -94,17 +94,32 @@ def parse_amount(amount: str) -> int:
         return int(amount)
     raise ValueError
 
+# ================== DONATIONS COMMANDS ==================
 @bot.command()
-async def adddn(ctx, username: str = None, amount: str = None):
+async def adddn(ctx, *args):
     """Add a donation to a user and update clan bank."""
-    # Handle mentions
+    if not args and not ctx.message.mentions:
+        await ctx.send("❌ Usage: !adddn <user> <amount>")
+        return
+
+    # Initialize
+    username = None
+    amount = None
+
+    # Handle mention case
     if ctx.message.mentions:
         user = ctx.message.mentions[0]
         username = user.display_name
+        # Find the amount in the message content
         for part in ctx.message.content.split():
             if part.lower().endswith(("k", "m", "b")) or part.replace(",", "").isdigit():
                 amount = part
                 break
+    else:
+        # No mention, expect username followed by amount
+        if len(args) >= 2:
+            username = " ".join(args[:-1])
+            amount = args[-1]
 
     if not username or not amount:
         await ctx.send("❌ Usage: !adddn <user> <amount>")
@@ -131,22 +146,9 @@ async def adddn(ctx, username: str = None, amount: str = None):
 
 @bot.command()
 async def donations(ctx):
-    """Show clan bank total and each user’s total donated."""
-    # Reload donations from file each time
-    if os.path.exists(DONATIONS_FILE):
-        with open(DONATIONS_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            total = data.get("clan_bank", 0)
-            user_totals = data.get("donations", {})
-    else:
-        total = 0
-        user_totals = {}
-
-    user_list = "\n".join(f"{name}: {value:,} gp" for name, value in user_totals.items()) or "No donations yet."
-    await ctx.send(
-        f"💰 **Clan Bank Total:** `{total:,}` gp\n"
-        f"**User Donations:**\n{user_list}"
-    )
+    """Show clan bank total."""
+    clan_total = donations.get("clan_bank", 0)
+    await ctx.send(f"💰 Clan Bank Total: `{clan_total:,}` gp")
 
 # ================== EVENTS ==================
 @bot.event
@@ -233,6 +235,7 @@ async def reset(ctx):
 
 # ================== START ==================
 bot.run(DISCORD_TOKEN)
+
 
 
 
