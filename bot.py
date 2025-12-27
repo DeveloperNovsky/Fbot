@@ -59,25 +59,27 @@ def remove_ticket(username, amount=1):
     return False
 
 # ================== DONATIONS DATA ==================
-# Load donations at startup
-if os.path.exists(DONATIONS_FILE):
-    with open(DONATIONS_FILE, "r", encoding="utf-8") as f:
+def load_donations():
+    if os.path.exists(DONATIONS_FILE):
         try:
-            donations = json.load(f)
-            if "donations" not in donations:
-                donations["donations"] = {}
-            if "clan_bank" not in donations:
-                donations["clan_bank"] = 0
+            with open(DONATIONS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if "donations" not in data:
+                data["donations"] = {}
+            if "clan_bank" not in data:
+                data["clan_bank"] = 0
+            return data
         except json.JSONDecodeError:
-            donations = {"donations": {}, "clan_bank": 0}
-else:
-    donations = {"donations": {}, "clan_bank": 0}
-    with open(DONATIONS_FILE, "w", encoding="utf-8") as f:
-        json.dump(donations, f, indent=2)
+            return {"donations": {}, "clan_bank": 0}
+    else:
+        data = {"donations": {}, "clan_bank": 0}
+        with open(DONATIONS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        return data
 
-def save_donations():
+def save_donations(donations_data):
     with open(DONATIONS_FILE, "w", encoding="utf-8") as f:
-        json.dump(donations, f, indent=2)
+        json.dump(donations_data, f, indent=2)
 
 def parse_amount(amount: str) -> int:
     amount = amount.lower().replace(",", "").strip()
@@ -172,10 +174,7 @@ async def reset(ctx):
 # ================== DONATION COMMANDS ==================
 @bot.command()
 async def adddn(ctx, arg1: str, arg2: str = None):
-    """
-    Add a donation to a user and update clan bank.
-    Usage: !adddn @User 500k or !adddn Username 500k
-    """
+    donations_data = load_donations()  # Load fresh data
     amount = None
     username = None
 
@@ -205,21 +204,24 @@ async def adddn(ctx, arg1: str, arg2: str = None):
         return
 
     key = username.lower()
-    donations["donations"][key] = donations["donations"].get(key,0) + value
-    donations["clan_bank"] += value
-    save_donations()
+    donations_data["donations"][key] = donations_data["donations"].get(key,0) + value
+    donations_data["clan_bank"] += value
+    save_donations(donations_data)
 
     await ctx.send(
         f"💰 **Donation Added**\n"
         f"User: **{username}**\n"
         f"Amount: `{value:,}` gp\n"
-        f"Donation Clan Bank: `{donations['donations'][key]:,}` gp\n"
-        f"Clan Bank: `{donations['clan_bank']:,}` gp"
+        f"Donation Clan Bank: `{donations_data['donations'][key]:,}` gp\n"
+        f"Clan Bank: `{donations_data['clan_bank']:,}` gp"
     )
 
 @bot.command()
 async def donations(ctx):
-    await ctx.send(f"💰 Clan Bank Total: `{donations['clan_bank']:,}` gp")
+    donations_data = load_donations()  # Load fresh data
+    await ctx.send(f"💰 Clan Bank Total: `{donations_data['clan_bank']:,}` gp")
 
 # ================== START ==================
 bot.run(DISCORD_TOKEN)
+
+
