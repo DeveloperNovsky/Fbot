@@ -16,9 +16,9 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 RAFFLE_FILE = os.path.join(BASE_DIR, "raffle_entries.json")
-DONATION_FILE = os.path.join(BASE_DIR, "donations.json")
+DONATIONS_FILE = os.path.join(BASE_DIR, "donations.json")
 
-ALLOWED_CHANNELS = [1033249948084477982]  # your channel ID
+ALLOWED_CHANNELS = [1033249948084477982]
 
 # ================== RAFFLE DATA ==================
 def load_entries():
@@ -58,28 +58,8 @@ def remove_ticket(username, amount=1):
     if raffle_entries[key] <= 0:
         raffle_entries.pop(key)
         user_display_names.pop(key, None)
-    return True
-
-# ================== DONATIONS ==================
-def load_donations():
-    if not os.path.exists(DONATION_FILE):
-        return {"clan_bank": 0, "donations": {}}
-    with open(DONATION_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-def save_donations(data):
-    with open(DONATION_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
-
-def parse_amount(amount_str: str):
-    s = amount_str.lower().replace(",", "")
-    if s.endswith("b"):
-        return int(float(s[:-1]) * 1_000_000_000)
-    if s.endswith("m"):
-        return int(float(s[:-1]) * 1_000_000)
-    if s.endswith("k"):
-        return int(float(s[:-1]) * 1_000)
-    return int(s)
+        return True
+    return False
 
 # ================== EVENTS ==================
 @bot.event
@@ -97,58 +77,50 @@ async def on_message(message):
 # ================== RAFFLE COMMANDS ==================
 @bot.command()
 async def addt(ctx, *args):
-    if len(args) < 2:
-        await ctx.send("❌ Usage: !addt username tickets")
-        return
-
+    global last_batch
+    last_batch = []
     name_parts = []
+    summary = []
+
     for arg in args:
         if arg.isdigit():
             tickets = int(arg)
-            username = " ".join(name_parts)
-            add_ticket(username, username, tickets)
+            name = " ".join(name_parts)
+            key = name.lower()
+            add_ticket(key, name, tickets)
+            last_batch.extend([key] * tickets)
+            summary.append(f"{name}: +{tickets}")
             name_parts = []
         else:
             name_parts.append(arg)
 
     save_entries()
-    await ctx.send("✅ Tickets added.")
+    await ctx.send(f"✅ Tickets added.\n```" + "\n".join(summary) + "```")
 
 @bot.command()
 async def removet(ctx, *args):
     name_parts = []
+    summary = []
+
     for arg in args:
         if arg.isdigit():
             tickets = int(arg)
-            username = " ".join(name_parts)
-            remove_ticket(username, tickets)
+            name = " ".join(name_parts)
+            key = name.lower()
+            removed = min(tickets, raffle_entries.get(key, 0))
+            remove_ticket(key, removed)
+            summary.append(f"{name}: -{removed}")
             name_parts = []
         else:
             name_parts.append(arg)
 
     save_entries()
-    await ctx.send("✅ Tickets removed.")
+    await ctx.send(f"❌ Tickets removed.\n```" + "\n".join(summary) + "```")
 
 @bot.command()
 async def entries(ctx):
     total = sum(raffle_entries.values())
-    await ctx.send(f"🎟️ **Entries ({total} total)**")
-
-@bot.command()
-async def restore(ctx):
-    lines = ctx.message.content.splitlines()[1:]
-
-    raffle_entries.clear()
-    user_display_names.clear()
-
-    for line in lines:
-        name = line.split(":")[0].strip()
-        if len(name) < 2:
-            continue
-        add_ticket(name, name, 1)
-
-    save_entries()
-    await ctx.send(f"✅ **Raffle entries restored ({sum(raffle_entries.values())} total)**")
+    await ctx.send(f"🎟️ Entries ({total} total)")
 
 @bot.command()
 async def drawwinner(ctx):
@@ -172,15 +144,54 @@ async def reset(ctx):
     save_entries()
     await ctx.send("✅ Raffle reset.")
 
-# ================== DONATION COMMANDS ==================
-@bot.command()
-async def adddn(ctx, amount: str, *, username: str):
-    """
-    !adddn 10m DMR
-    !adddn 250k L CBO
-    """
+# ================== DONATIONS ==================
+def load_donations():
+    if not os.path.exists(DONATIONS_FILE):
+        return {"donations": {}, "clan_bank": 0}
+    with open(DONATIONS_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
 
+def save_donations(data):
+    with open(DONATIONS_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+def parse_amount(amount: str) -> int:
+    amount = amount.lower().replace(",", "").strip()
+    if amount.endswith("k"):
+        return int(float(amount[:-1]) * 1_000)
+    if amount.endswith("m"):
+        return int(float(amount[:-1]) * 1_000_000)
+    if amount.endswith("b"):
+        return int(float(amount[:-1]) * 1_000_000_000)
+    if amount.isdigit():
+        return int(amount)
+    raise ValueError
+
+@bot.command()
+async def adddn(ctx, arg1: str, arg2: str = None):
     donations = load_donations()
+
+    amount = None
+    username = None
+
+    if ctx.message.mentions:
+        user = ctx.message.mentions[0]
+        username = user.display_name
+        for part in ctx.message.content.split():
+            if part.lower().endswith(("k", "m", "b")) or part.replace(",", "").isdigit():
+                amount = part
+                break
+    else:
+        if arg1.lower().endswith(("k", "m", "b")) or arg1.replace(",", "").isdigit():
+            amount = arg1
+            username = arg2
+        else:
+            username = arg1
+            amount = arg2
+
+    if not amount or not username:
+        await ctx.send("❌ Usage: !adddn <user> <amount>")
+        return
 
     try:
         value = parse_amount(amount)
@@ -189,7 +200,6 @@ async def adddn(ctx, amount: str, *, username: str):
         return
 
     key = username.lower()
-
     donations["donations"][key] = donations["donations"].get(key, 0) + value
     donations["clan_bank"] += value
 
@@ -199,14 +209,10 @@ async def adddn(ctx, amount: str, *, username: str):
         f"💰 **Donation Added**\n"
         f"User: **{username}**\n"
         f"Amount: `{value:,}` gp\n"
-        f"User Total: `{donations['donations'][key]:,}` gp\n"
+        f"Donation Clan Bank: `{donations['donations'][key]:,}` gp\n"
         f"Clan Bank: `{donations['clan_bank']:,}` gp"
     )
 
-@bot.command()
-async def clanbank(ctx):
-    data = load_donations()
-    await ctx.send(f"🏦 **Clan Bank:** `{data['clan_bank']:,}` gp")
-
 # ================== START ==================
 bot.run(DISCORD_TOKEN)
+
