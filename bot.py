@@ -15,7 +15,6 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Files
 RAFFLE_FILE = os.path.join(BASE_DIR, "raffle_entries.json")
 DONATIONS_FILE = os.path.join(BASE_DIR, "donations.json")
 
@@ -62,13 +61,22 @@ def remove_ticket(username, amount=1):
         return True
     return False
 
-# ================== DONATIONS ==================
-# Load donations once at startup
+# ================== DONATIONS FIX ==================
+# Load donations at startup or create file if missing
 if os.path.exists(DONATIONS_FILE):
     with open(DONATIONS_FILE, "r", encoding="utf-8") as f:
-        donations = json.load(f)
+        try:
+            donations = json.load(f)
+            if "donations" not in donations:
+                donations["donations"] = {}
+            if "clan_bank" not in donations:
+                donations["clan_bank"] = 0
+        except json.JSONDecodeError:
+            donations = {"donations": {}, "clan_bank": 0}
 else:
     donations = {"donations": {}, "clan_bank": 0}
+    with open(DONATIONS_FILE, "w", encoding="utf-8") as f:
+        json.dump(donations, f, indent=2)
 
 def save_donations():
     with open(DONATIONS_FILE, "w", encoding="utf-8") as f:
@@ -88,7 +96,10 @@ def parse_amount(amount: str) -> int:
 
 @bot.command()
 async def adddn(ctx, arg1: str, arg2: str = None):
-    """Add a donation for a user and track clan bank"""
+    """
+    Add a donation to a user and update clan bank.
+    Usage: !adddn @User 500k or !adddn Username 500k
+    """
     amount = None
     username = None
 
@@ -129,21 +140,6 @@ async def adddn(ctx, arg1: str, arg2: str = None):
         f"Donation Clan Bank: `{donations['donations'][key]:,}` gp\n"
         f"Clan Bank: `{donations['clan_bank']:,}` gp"
     )
-
-@bot.command()
-async def donations_total(ctx):
-    await ctx.send(f"💰 **Clan Bank Total:** {donations['clan_bank']:,} gp")
-
-@bot.command()
-async def topdonors(ctx, top: int = 5):
-    if not donations["donations"]:
-        await ctx.send("No donations yet.")
-        return
-    sorted_donors = sorted(donations["donations"].items(), key=lambda x: x[1], reverse=True)
-    message = [f"💰 **Top {top} Donors:**"]
-    for i, (user, amount) in enumerate(sorted_donors[:top], start=1):
-        message.append(f"{i}. {user}: {amount:,} gp")
-    await ctx.send("\n".join(message))
 
 # ================== EVENTS ==================
 @bot.event
