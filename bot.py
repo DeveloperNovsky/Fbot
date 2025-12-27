@@ -14,8 +14,8 @@ intents.guilds = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ================== FILE PATHS ==================
-RAFFLE_FILE = "/data/raffle_entries.json"     # Persisted on Railway volume
-DONATIONS_FILE = "/data/donations.json"       # Persisted on Railway volume
+RAFFLE_FILE = "/data/raffle_entries.json"
+DONATIONS_FILE = "/data/donations.json"
 
 ALLOWED_CHANNELS = [1033249948084477982]
 
@@ -184,10 +184,9 @@ async def reset(ctx):
     save_entries()
     await ctx.send("✅ Raffle reset.")
 
-# ================== ✅ FIXED PASTE COMMAND ==================
+# ================== PASTE COMMAND ==================
 @bot.command()
 async def p(ctx):
-    """Paste raid log – adds +1 ticket per name"""
     global last_batch
     last_batch = []
 
@@ -198,11 +197,7 @@ async def p(ctx):
     added = []
 
     for line in lines:
-        if "|" in line:
-            name = line.split("|")[0].strip()
-        else:
-            name = line.strip()
-
+        name = line.split("|")[0].strip() if "|" in line else line.strip()
         if not name:
             continue
 
@@ -222,6 +217,35 @@ async def p(ctx):
         "```"
     )
 
+# ================== ✅ FIXED REMOVE LAST ENTRY ==================
+@bot.command()
+async def removele(ctx):
+    """Remove the last pasted batch from !p"""
+    global last_batch
+
+    if not last_batch:
+        await ctx.send("❌ No previous paste batch to remove.")
+        return
+
+    removed = []
+
+    for key in last_batch:
+        if key in raffle_entries:
+            raffle_entries[key] -= 1
+            if raffle_entries[key] <= 0:
+                raffle_entries.pop(key)
+                user_display_names.pop(key, None)
+            removed.append(key)
+
+    save_entries()
+    last_batch = []
+
+    await ctx.send(
+        f"🗑️ Removed last pasted entries:\n```" +
+        "\n".join(removed) +
+        "```"
+    )
+
 # ================== DONATION COMMANDS ==================
 @bot.command()
 async def adddn(ctx, arg1: str, arg2: str = None):
@@ -236,12 +260,8 @@ async def adddn(ctx, arg1: str, arg2: str = None):
                 amount = part
                 break
     else:
-        if arg1.lower().endswith(("k","m","b")):
-            amount = arg1
-            username = arg2
-        else:
-            username = arg1
-            amount = arg2
+        username = arg1
+        amount = arg2
 
     if not amount or not username:
         await ctx.send("❌ Usage: !adddn <user> <amount>")
@@ -272,4 +292,3 @@ async def donations(ctx):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
-
