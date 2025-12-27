@@ -149,26 +149,9 @@ async def removet(ctx, *args):
 
 @bot.command()
 async def entries(ctx):
-    # Load from persisted JSON so entries survive restarts
-    if os.path.exists(RAFFLE_FILE):
-        with open(RAFFLE_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            raffle_entries_loaded = data.get("raffle_entries", {})
-            display_names_loaded = data.get("display_names", {})
-    else:
-        raffle_entries_loaded = {}
-        display_names_loaded = {}
-
-    total = sum(raffle_entries_loaded.values())
-
-    if raffle_entries_loaded:
-        summary = "\n".join(
-            f"{display_names_loaded.get(k, k)}: {v} ticket(s)"
-            for k, v in raffle_entries_loaded.items()
-        )
-        await ctx.send(f"🎟️ **Entries ({total} total):**\n```{summary}```")
-    else:
-        await ctx.send(f"🎟️ Entries ({total} total)")
+    total = sum(raffle_entries.values())
+    summary = "\n".join(f"{user_display_names.get(k,k)}: {v} ticket(s)" for k,v in raffle_entries.items())
+    await ctx.send(f"🎟️ Entries ({total} total):\n```{summary}```")
 
 @bot.command()
 async def drawwinner(ctx):
@@ -187,9 +170,55 @@ async def reset(ctx):
     save_entries()
     await ctx.send("✅ Raffle reset.")
 
+# ================== RAFFLE RESTORE ==================
+@bot.command(name="restore")
+@commands.has_permissions(administrator=True)
+async def restore(ctx):
+    """
+    Restore raffle entries from pasted text.
+    Format: each line = username[: tickets]
+    """
+    global last_batch
+    content = ctx.message.content.split("\n")[1:]
+    raffle_entries.clear()
+    user_display_names.clear()
+    last_batch = []
+
+    restored_summary = []
+
+    for line in content:
+        line = line.strip()
+        if not line:
+            continue
+        if ":" in line:
+            name, count = line.split(":", 1)
+            try:
+                tickets = int(count.strip())
+            except ValueError:
+                tickets = 1
+        else:
+            name = line
+            tickets = 1
+        key = name.lower()
+        add_ticket(key, name, tickets)
+        last_batch.extend([key]*tickets)
+        restored_summary.append(f"{name}: {tickets} ticket(s)")
+
+    save_entries()
+
+    await ctx.send(
+        f"✅ **Raffle entries restored ({len(restored_summary)} total):**\n```"
+        + "\n".join(restored_summary)
+        + "```"
+    )
+
 # ================== DONATION COMMANDS ==================
 @bot.command()
 async def adddn(ctx, arg1: str, arg2: str = None):
+    """
+    Add a donation to a user and update clan bank.
+    Usage: !adddn @User 500k or !adddn Username 500k
+    """
     amount = None
     username = None
 
@@ -237,8 +266,5 @@ async def donations(ctx):
 
 # ================== START ==================
 bot.run(DISCORD_TOKEN)
-
-
-
 
 
