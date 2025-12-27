@@ -17,7 +17,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 RAFFLE_FILE = "/data/raffle_entries.json"    # Persisted on Railway volume
 DONATIONS_FILE = "/data/donations.json"      # Persisted on Railway volume
 
-ALLOWED_CHANNELS = [1033249948084477982,1033249948084477983]  # Replace with your channel ID
+ALLOWED_CHANNELS = [1033249948084477982]  # Replace with your channel ID
 
 os.makedirs("/data", exist_ok=True)
 
@@ -320,4 +320,5 @@ async def donations(ctx):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
 
