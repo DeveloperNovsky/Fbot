@@ -16,8 +16,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 RAFFLE_FILE = os.path.join(BASE_DIR, "raffle_entries.json")
-# <-- change this path if you mounted the volume somewhere else -->
-DONATIONS_FILE = "/data/donations.json"
+DONATIONS_FILE = "/data/donations.json"  # Persistent storage path
 
 ALLOWED_CHANNELS = [1033249948084477982]
 
@@ -63,7 +62,7 @@ def remove_ticket(username, amount=1):
     return False
 
 # ================== DONATIONS ==================
-# ensure /data exists
+# Ensure /data exists
 if not os.path.exists("/data"):
     os.makedirs("/data")
 
@@ -99,6 +98,7 @@ def parse_amount(amount: str) -> int:
         return int(amount)
     raise ValueError
 
+# ================== DONATION COMMANDS ==================
 @bot.command()
 async def adddn(ctx, arg1: str, arg2: str = None):
     """
@@ -108,6 +108,7 @@ async def adddn(ctx, arg1: str, arg2: str = None):
     amount = None
     username = None
 
+    # Handle mentions
     if ctx.message.mentions:
         user = ctx.message.mentions[0]
         username = user.display_name
@@ -116,6 +117,7 @@ async def adddn(ctx, arg1: str, arg2: str = None):
                 amount = part
                 break
     else:
+        # Determine which argument is username vs amount
         if arg1.lower().endswith(("k", "m", "b")) or arg1.replace(",", "").isdigit():
             amount = arg1
             username = arg2
@@ -148,7 +150,14 @@ async def adddn(ctx, arg1: str, arg2: str = None):
 
 @bot.command()
 async def donations(ctx):
-    await ctx.send(f"💰 Clan Bank Total: {donations['clan_bank']:,} gp")
+    """Show clan bank total and each user’s total donated."""
+    user_totals = "\n".join(
+        f"{name}: {total:,} gp" for name, total in donations["donations"].items()
+    ) or "No donations yet."
+    await ctx.send(
+        f"💰 **Clan Bank Total:** `{donations['clan_bank']:,}` gp\n"
+        f"**User Donations:**\n{user_totals}"
+    )
 
 # ================== EVENTS ==================
 @bot.event
@@ -235,5 +244,6 @@ async def reset(ctx):
 
 # ================== START ==================
 bot.run(DISCORD_TOKEN)
+
 
 
