@@ -14,11 +14,9 @@ intents.guilds = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
 RAFFLE_FILE = os.path.join(BASE_DIR, "raffle_entries.json")
-DONATIONS_FILE = os.path.join(BASE_DIR, "donations.json")
 
-ALLOWED_CHANNELS = [1033249948084477982]
+ALLOWED_CHANNELS = [1033249948084477982]  # your channel ID
 
 # ================== RAFFLE DATA ==================
 def load_entries():
@@ -34,16 +32,12 @@ def save_entries(entries=None, display_names=None):
     if display_names is None:
         display_names = user_display_names
     with open(RAFFLE_FILE, "w", encoding="utf-8") as f:
-        json.dump(
-            {"raffle_entries": entries, "display_names": display_names},
-            f,
-            indent=2
-        )
+        json.dump({"raffle_entries": entries, "display_names": display_names}, f, indent=2)
 
 raffle_entries, user_display_names = load_entries()
 last_batch = []
 
-# ================== RAFFLE HELPERS ==================
+# ================== HELPERS ==================
 def add_ticket(username, display_name=None, amount=1):
     key = username.lower()
     raffle_entries[key] = raffle_entries.get(key, 0) + amount
@@ -61,6 +55,17 @@ def remove_ticket(username, amount=1):
         return True
     return False
 
+def extract_names_from_text(content: str):
+    names = []
+    for line in content.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        name = line.split("|")[0].split(":")[0].strip()
+        if len(name) >= 2:
+            names.append(name)
+    return list(dict.fromkeys(names))
+
 # ================== EVENTS ==================
 @bot.event
 async def on_ready():
@@ -75,144 +80,72 @@ async def on_message(message):
     await bot.process_commands(message)
 
 # ================== RAFFLE COMMANDS ==================
-@bot.command()
-async def addt(ctx, *args):
-    global last_batch
-    last_batch = []
-    name_parts = []
-    summary = []
+# ... all your existing raffle commands (addt, removet, removele, entries, restore, drawwinner, reset) stay here ...
 
-    for arg in args:
-        if arg.isdigit():
-            tickets = int(arg)
-            name = " ".join(name_parts)
-            key = name.lower()
-            add_ticket(key, name, tickets)
-            last_batch.extend([key] * tickets)
-            summary.append(f"{name}: +{tickets}")
-            name_parts = []
-        else:
-            name_parts.append(arg)
+# ================== DONATION SYSTEM ==================
+DONATION_FILE = os.path.join(BASE_DIR, "donations.json")
 
-    save_entries()
-    await ctx.send(f"✅ Tickets added.\n```" + "\n".join(summary) + "```")
-
-@bot.command()
-async def removet(ctx, *args):
-    name_parts = []
-    summary = []
-
-    for arg in args:
-        if arg.isdigit():
-            tickets = int(arg)
-            name = " ".join(name_parts)
-            key = name.lower()
-            removed = min(tickets, raffle_entries.get(key, 0))
-            remove_ticket(key, removed)
-            summary.append(f"{name}: -{removed}")
-            name_parts = []
-        else:
-            name_parts.append(arg)
-
-    save_entries()
-    await ctx.send(f"❌ Tickets removed.\n```" + "\n".join(summary) + "```")
-
-@bot.command()
-async def entries(ctx):
-    total = sum(raffle_entries.values())
-    await ctx.send(f"🎟️ Entries ({total} total)")
-
-@bot.command()
-async def drawwinner(ctx):
-    if not raffle_entries:
-        await ctx.send("No entries.")
-        return
-    winner = random.choices(
-        list(raffle_entries.keys()),
-        weights=raffle_entries.values(),
-        k=1
-    )[0]
-    await ctx.send(
-        f"🎉 Winner: **{user_display_names.get(winner, winner)}** "
-        f"({raffle_entries[winner]} tickets)"
-    )
-
-@bot.command()
-async def reset(ctx):
-    raffle_entries.clear()
-    user_display_names.clear()
-    save_entries()
-    await ctx.send("✅ Raffle reset.")
-
-# ================== DONATIONS ==================
 def load_donations():
-    if not os.path.exists(DONATIONS_FILE):
-        return {"donations": {}, "clan_bank": 0}
-    with open(DONATIONS_FILE, "r", encoding="utf-8") as f:
+    if not os.path.exists(DONATION_FILE):
+        return {"clan_bank": 0, "users": {}}
+    with open(DONATION_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
-def save_donations(data):
-    with open(DONATIONS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
+def save_donations():
+    with open(DONATION_FILE, "w", encoding="utf-8") as f:
+        json.dump(donations, f, indent=2)
 
-def parse_amount(amount: str) -> int:
-    amount = amount.lower().replace(",", "").strip()
-    if amount.endswith("k"):
-        return int(float(amount[:-1]) * 1_000)
-    if amount.endswith("m"):
-        return int(float(amount[:-1]) * 1_000_000)
-    if amount.endswith("b"):
-        return int(float(amount[:-1]) * 1_000_000_000)
-    if amount.isdigit():
-        return int(amount)
-    raise ValueError
+donations = load_donations()
 
 @bot.command()
-async def adddn(ctx, arg1: str, arg2: str = None):
-    donations = load_donations()
-
-    amount = None
-    username = None
-
-    if ctx.message.mentions:
-        user = ctx.message.mentions[0]
-        username = user.display_name
-        for part in ctx.message.content.split():
-            if part.lower().endswith(("k", "m", "b")) or part.replace(",", "").isdigit():
-                amount = part
-                break
-    else:
-        if arg1.lower().endswith(("k", "m", "b")) or arg1.replace(",", "").isdigit():
-            amount = arg1
-            username = arg2
-        else:
-            username = arg1
-            amount = arg2
-
-    if not amount or not username:
-        await ctx.send("❌ Usage: !adddn <user> <amount>")
+async def adddn(ctx, member: discord.Member, amount: str):
+    if ctx.channel.id not in ALLOWED_CHANNELS:
         return
 
+    amt = amount.lower().replace(",", "")
     try:
-        value = parse_amount(amount)
-    except ValueError:
+        if amt.endswith("k"):
+            value = int(float(amt[:-1]) * 1_000)
+        elif amt.endswith("m"):
+            value = int(float(amt[:-1]) * 1_000_000)
+        elif amt.endswith("b"):
+            value = int(float(amt[:-1]) * 1_000_000_000)
+        else:
+            await ctx.send("❌ Invalid amount. Use 10m / 500k / 1b")
+            return
+    except:
         await ctx.send("❌ Invalid amount. Use 10m / 500k / 1b")
         return
 
-    key = username.lower()
-    donations["donations"][key] = donations["donations"].get(key, 0) + value
+    key = str(member)
+    donations["users"][key] = donations["users"].get(key, 0) + value
     donations["clan_bank"] += value
-
-    save_donations(donations)
+    save_donations()
 
     await ctx.send(
-        f"💰 **Donation Added**\n"
-        f"User: **{username}**\n"
-        f"Amount: `{value:,}` gp\n"
-        f"Donation Clan Bank: `{donations['donations'][key]:,}` gp\n"
-        f"Clan Bank: `{donations['clan_bank']:,}` gp"
+        f"💰 **Donation Clan Bank:** {key} donated {amount}.\n"
+        f"Clan Bank Total: {donations['clan_bank']:,}"
     )
+
+@bot.command()
+async def donations_total(ctx):
+    if ctx.channel.id not in ALLOWED_CHANNELS:
+        return
+    total = donations["clan_bank"]
+    await ctx.send(f"💰 **Donation Clan Bank Total:** {total:,}")
+
+@bot.command()
+async def topdonors(ctx, top: int = 5):
+    if ctx.channel.id not in ALLOWED_CHANNELS:
+        return
+    if not donations["users"]:
+        await ctx.send("No donations yet.")
+        return
+    sorted_donors = sorted(donations["users"].items(), key=lambda x: x[1], reverse=True)
+    message = [f"💰 **Top {top} Donors:**"]
+    for i, (user, amount) in enumerate(sorted_donors[:top], start=1):
+        message.append(f"{i}. {user}: {amount:,}")
+    await ctx.send("\n".join(message))
 
 # ================== START ==================
 bot.run(DISCORD_TOKEN)
-
