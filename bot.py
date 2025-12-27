@@ -340,8 +340,8 @@ async def adddn(ctx, arg1: str, arg2: str = None):
     await ctx.send(
         f"💰 **Donation Added**\n"
         f"User: **{username}**\n"
-        f"Amount: `{value:,}` gp\n"
-        f"Donation Clan Bank: `{donations_data['donations'][key]:,}` gp\n"
+        f"Amount Credited: `{value:,}` gp\n"
+        f"Total Donation to Clan Bank: `{donations_data['donations'][key]:,}` gp\n"
         f"Clan Bank: `{donations_data['clan_bank']:,}` gp"
     )
 
@@ -351,3 +351,4 @@ async def donations(ctx):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
