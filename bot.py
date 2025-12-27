@@ -6,19 +6,17 @@ from discord.ext import commands
 
 # ================== CONFIG ==================
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
-
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ================== FILE PATHS ==================
-RAFFLE_FILE = "/data/raffle_entries.json"
-DONATIONS_FILE = "/data/donations.json"
+RAFFLE_FILE = "/data/raffle_entries.json"    # Persisted on Railway volume
+DONATIONS_FILE = "/data/donations.json"      # Persisted on Railway volume
+ALLOWED_CHANNELS = [1033249948084477982]    # Replace with your channel ID
 
-ALLOWED_CHANNELS = [1033249948084477982]
-
+# Ensure /data directory exists
 os.makedirs("/data", exist_ok=True)
 
 # ================== RAFFLE DATA ==================
@@ -31,19 +29,11 @@ def load_entries():
 
 def save_entries():
     with open(RAFFLE_FILE, "w", encoding="utf-8") as f:
-        json.dump(
-            {
-                "raffle_entries": raffle_entries,
-                "display_names": user_display_names
-            },
-            f,
-            indent=2
-        )
+        json.dump({"raffle_entries": raffle_entries, "display_names": user_display_names}, f, indent=2)
 
 raffle_entries, user_display_names = load_entries()
 last_batch = []
 
-# ================== RAFFLE HELPERS ==================
 def add_ticket(username, display_name=None, amount=1):
     key = username.lower()
     raffle_entries[key] = raffle_entries.get(key, 0) + amount
@@ -109,6 +99,8 @@ async def on_message(message):
 # ================== RAFFLE COMMANDS ==================
 @bot.command()
 async def addt(ctx, *args):
+    global last_batch
+    last_batch = []
     name_parts = []
     summary = []
 
@@ -117,13 +109,14 @@ async def addt(ctx, *args):
             tickets = int(arg)
             name = " ".join(name_parts)
             add_ticket(name, name, tickets)
+            last_batch.extend([name.lower()] * tickets)
             summary.append(f"{name}: +{tickets}")
             name_parts = []
         else:
             name_parts.append(arg)
 
     save_entries()
-    await ctx.send("✅ Tickets added:\n```" + "\n".join(summary) + "```")
+    await ctx.send(f"✅ Tickets added:\n```" + "\n".join(summary) + "```")
 
 @bot.command()
 async def removet(ctx, *args):
@@ -141,7 +134,7 @@ async def removet(ctx, *args):
             name_parts.append(arg)
 
     save_entries()
-    await ctx.send("❌ Tickets removed:\n```" + "\n".join(summary) + "```")
+    await ctx.send(f"❌ Tickets removed:\n```" + "\n".join(summary) + "```")
 
 @bot.command()
 async def entries(ctx):
@@ -156,26 +149,15 @@ async def entries(ctx):
         lines.append(f"{name}: {count}")
         total += count
 
-    await ctx.send(
-        f"🎟️ Entries ({total} total):\n```" +
-        "\n".join(lines) +
-        "```"
-    )
+    await ctx.send(f"🎟️ Entries ({total} total):\n```" + "\n".join(lines) + "```")
 
 @bot.command()
 async def drawwinner(ctx):
     if not raffle_entries:
         await ctx.send("No entries.")
         return
-    winner = random.choices(
-        list(raffle_entries.keys()),
-        weights=raffle_entries.values(),
-        k=1
-    )[0]
-    await ctx.send(
-        f"🎉 Winner: **{user_display_names.get(winner, winner)}** "
-        f"({raffle_entries[winner]} tickets)"
-    )
+    winner = random.choices(list(raffle_entries.keys()), weights=raffle_entries.values(), k=1)[0]
+    await ctx.send(f"🎉 Winner: **{user_display_names.get(winner, winner)}** ({raffle_entries[winner]} tickets)")
 
 @bot.command()
 async def reset(ctx):
@@ -184,23 +166,25 @@ async def reset(ctx):
     save_entries()
     await ctx.send("✅ Raffle reset.")
 
-# ================== PASTE COMMAND ==================
+# ================== FIXED PASTE COMMAND ==================
 @bot.command()
 async def p(ctx):
+    """Paste raid log – adds +1 ticket per name"""
     global last_batch
     last_batch = []
 
-    content = ctx.message.content
-    content = content[len(ctx.prefix + ctx.command.name):].strip()
+    content = ctx.message.content[len(ctx.prefix + ctx.command.name):].strip()
     lines = content.splitlines()
-
     added = []
 
     for line in lines:
-        name = line.split("|")[0].strip() if "|" in line else line.strip()
-        if not name:
+        line = line.strip()
+        if not line:
             continue
-
+        if "|" in line:
+            name = line.split("|")[0].strip()
+        else:
+            name = line
         add_ticket(name, name, 1)
         last_batch.append(name.lower())
         added.append(name)
@@ -211,40 +195,23 @@ async def p(ctx):
         await ctx.send("❌ No valid names found.")
         return
 
-    await ctx.send(
-        f"✅ Added **{len(added)}** raffle tickets:\n```" +
-        "\n".join(added) +
-        "```"
-    )
+    await ctx.send(f"✅ Added **{len(added)}** raffle tickets:\n```" + "\n".join(added) + "```")
 
-# ================== ✅ FIXED REMOVE LAST ENTRY ==================
+# ================== REMOVE LAST BATCH ==================
 @bot.command()
 async def removele(ctx):
-    """Remove the last pasted batch from !p"""
     global last_batch
-
     if not last_batch:
         await ctx.send("❌ No previous paste batch to remove.")
         return
-
-    removed = []
-
+    removed_summary = []
     for key in last_batch:
         if key in raffle_entries:
-            raffle_entries[key] -= 1
-            if raffle_entries[key] <= 0:
-                raffle_entries.pop(key)
-                user_display_names.pop(key, None)
-            removed.append(key)
-
-    save_entries()
+            remove_ticket(key, 1)
+            removed_summary.append(user_display_names.get(key, key))
     last_batch = []
-
-    await ctx.send(
-        f"🗑️ Removed last pasted entries:\n```" +
-        "\n".join(removed) +
-        "```"
-    )
+    save_entries()
+    await ctx.send(f"❌ Removed last paste batch:\n```" + "\n".join(removed_summary) + "```")
 
 # ================== DONATION COMMANDS ==================
 @bot.command()
@@ -260,8 +227,12 @@ async def adddn(ctx, arg1: str, arg2: str = None):
                 amount = part
                 break
     else:
-        username = arg1
-        amount = arg2
+        if arg1.lower().endswith(("k","m","b")):
+            amount = arg1
+            username = arg2
+        else:
+            username = arg1
+            amount = arg2
 
     if not amount or not username:
         await ctx.send("❌ Usage: !adddn <user> <amount>")
@@ -292,3 +263,4 @@ async def donations(ctx):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
