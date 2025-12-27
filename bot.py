@@ -13,9 +13,9 @@ intents.guilds = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ================== FILE PATHS ==================
-RAFFLE_FILE = "/data/raffle_entries.json"     # Persisted on Railway volume
-DONATIONS_FILE = "/data/donations.json"       # Persisted on Railway volume
+# ================== DATA FILES ==================
+RAFFLE_FILE = "/data/raffle_entries.json"    # Persisted on Railway volume
+DONATIONS_FILE = "/data/donations.json"      # Persisted on Railway volume
 
 ALLOWED_CHANNELS = [1033249948084477982]  # Replace with your channel ID
 
@@ -31,19 +31,14 @@ def load_entries():
 
 def save_entries():
     with open(RAFFLE_FILE, "w", encoding="utf-8") as f:
-        json.dump(
-            {
-                "raffle_entries": raffle_entries,
-                "display_names": user_display_names
-            },
-            f,
-            indent=2
-        )
+        json.dump({
+            "raffle_entries": raffle_entries,
+            "display_names": user_display_names
+        }, f, indent=2)
 
 raffle_entries, user_display_names = load_entries()
 last_batch = []
 
-# ================== RAFFLE HELPERS ==================
 def add_ticket(username, display_name=None, amount=1):
     key = username.lower()
     raffle_entries[key] = raffle_entries.get(key, 0) + amount
@@ -111,7 +106,6 @@ async def on_message(message):
 async def addt(ctx, *args):
     global last_batch
     last_batch = []
-
     name_parts = []
     summary = []
 
@@ -127,7 +121,7 @@ async def addt(ctx, *args):
             name_parts.append(arg)
 
     save_entries()
-    await ctx.send("✅ Tickets added:\n```" + "\n".join(summary) + "```")
+    await ctx.send(f"✅ Tickets added:\n```" + "\n".join(summary) + "```")
 
 @bot.command()
 async def removet(ctx, *args):
@@ -145,7 +139,7 @@ async def removet(ctx, *args):
             name_parts.append(arg)
 
     save_entries()
-    await ctx.send("❌ Tickets removed:\n```" + "\n".join(summary) + "```")
+    await ctx.send(f"❌ Tickets removed:\n```" + "\n".join(summary) + "```")
 
 @bot.command()
 async def entries(ctx):
@@ -156,8 +150,8 @@ async def entries(ctx):
     lines = []
     total = 0
     for key, count in raffle_entries.items():
-        display_name = user_display_names.get(key, key.title())
-        lines.append(f"{display_name}: {count}")
+        name = user_display_names.get(key, key)
+        lines.append(f"{name}: {count}")
         total += count
 
     await ctx.send(
@@ -188,7 +182,7 @@ async def reset(ctx):
     save_entries()
     await ctx.send("✅ Raffle reset.")
 
-# ================== PASTE COMMAND ==================
+# ================== FIXED PASTE COMMAND ==================
 @bot.command()
 async def p(ctx):
     """Paste raid log – adds +1 ticket per name"""
@@ -229,22 +223,15 @@ async def p(ctx):
 # ================== REMOVE LAST BATCH ==================
 @bot.command()
 async def removele(ctx):
-    """Removes last paste batch"""
-    global last_batch
     if not last_batch:
-        await ctx.send("❌ No previous paste batch to remove.")
+        await ctx.send("❌ No previous batch to remove.")
         return
 
-    summary = []
-    for name in last_batch:
-        remove_ticket(name, 1)
-        summary.append(name)
-
-    last_batch = []
+    for key in last_batch:
+        remove_ticket(key, 1)
     save_entries()
-    await ctx.send(
-        f"❌ Removed last batch:\n```" + "\n".join(summary) + "```"
-    )
+    await ctx.send(f"❌ Last batch removed ({len(last_batch)} tickets).")
+    last_batch.clear()
 
 # ================== RESTORE COMMAND ==================
 @bot.command()
@@ -255,17 +242,20 @@ async def restore(ctx):
     lines = content.splitlines()
 
     restored = []
+    global last_batch
+    last_batch = []
 
     for line in lines:
         if "|" in line:
             name = line.split("|")[0].strip()
         else:
-            name = line.strip()
+            name = line.split(":")[0].strip()  # clean formatting
 
         if not name:
             continue
 
         add_ticket(name, name, 1)
+        last_batch.append(name.lower())
         restored.append(name)
 
     save_entries()
