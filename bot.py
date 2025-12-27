@@ -167,7 +167,6 @@ async def reset(ctx):
     save_entries()
     await ctx.send("✅ Raffle reset.")
 
-# ================== PASTE COMMAND (!p) ==================
 @bot.command(name="p")
 @commands.has_permissions(administrator=True)
 async def paste_entries(ctx):
@@ -175,26 +174,39 @@ async def paste_entries(ctx):
     Paste raffle entries below the command.
     Each line = 1 ticket added to the user's total.
     """
-    global last_batch
+    lines = ctx.message.content.split("\n")[1:]  # skip command line
+    added = []
 
-    lines = ctx.message.content.splitlines()[1:]  # skip the command line
-    added_count = 0
-    last_batch = []
-
-    for line in lines:
-        line = line.strip()
+    for raw in lines:
+        line = raw.strip()
         if not line:
             continue
-        name = line.split(":")[0].split("|")[0].strip()
+
+        # Take everything BEFORE the first | as the name
+        if "|" in line:
+            name = line.split("|", 1)[0].strip()
+        else:
+            name = line.strip()
+
+        # Extra safety
         if len(name) < 2:
             continue
+
         key = name.lower()
         add_ticket(key, name, 1)
-        last_batch.append(key)
-        added_count += 1
+        added.append(name)
 
     save_entries()
-    await ctx.send(f"✅ Raffle entries updated: {added_count} ticket(s) added.")
+
+    if not added:
+        await ctx.send("⚠️ No valid names found.")
+        return
+
+    await ctx.send(
+        f"✅ Raffle entries updated ({len(added)} ticket(s)):\n"
+        + "```" + "\n".join(added) + "```"
+    )
+
 
 # ================== DONATION COMMANDS ==================
 @bot.command()
@@ -251,3 +263,4 @@ async def donations(ctx):
 
 # ================== START ==================
 bot.run(DISCORD_TOKEN)
+
