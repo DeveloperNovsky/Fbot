@@ -476,10 +476,14 @@ async def donations(ctx):
 
 @bot.command()
 @commands.has_permissions(administrator=True)
-async def addds(ctx, amount: str = None):
-    """Add a donation directly to the Clan Bank without assigning to any user (admin only)"""
+async def addds(ctx, amount: str = None, *, description: str = None):
+    """
+    Add a donation directly to the Clan Bank without assigning to any user.
+    Optional description can be added to note who/what the donation is for.
+    Usage: !addds <amount> [description]
+    """
     if not amount:
-        await ctx.send("❌ Usage: !addds <amount>")
+        await ctx.send("❌ Usage: !addds <amount> [description]")
         return
 
     try:
@@ -491,11 +495,17 @@ async def addds(ctx, amount: str = None):
     donations_data["clan_bank"] += value
     save_donations()
 
-    await ctx.send(
+    message = (
         f"💰 **Clan Bank Updated**\n"
-        f"Added: `{value:,}` gp\n"
-        f"New Clan Bank Total: `{donations_data['clan_bank']:,}` gp"
+        f"Added: `{value:,}` gp"
     )
+
+    if description:
+        message += f"\nDescription: {description}"
+
+    message += f"\nNew Clan Bank Total: `{donations_data['clan_bank']:,}` gp"
+
+    await ctx.send(message)
 
 
 @bot.command()
@@ -513,6 +523,7 @@ async def checkud(ctx, member: discord.Member = None):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
 
 
 
