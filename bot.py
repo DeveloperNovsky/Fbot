@@ -22,6 +22,7 @@ ALLOWED_CHANNELS = [
     1033249948084477982,  # Mydiscord
     1340371301654859907,  # Clan bank in Fyre Bird
     1454932497988190278,  # Fyrebird owner commands chat
+    1454933219467329537,  # Fyre setup channel
 ]
 
 os.makedirs("/data", exist_ok=True)
@@ -659,6 +660,7 @@ async def checkud(ctx, member: discord.Member = None):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
 
 
 
