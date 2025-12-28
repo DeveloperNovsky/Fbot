@@ -124,6 +124,7 @@ async def on_message(message):
 
 # ================== RAFFLE COMMANDS ==================
 @bot.command()
+@commands.has_permissions(administrator=True)
 async def addt(ctx, *args):
     name_parts = []
     summary = []
@@ -142,6 +143,7 @@ async def addt(ctx, *args):
     await ctx.send("✅ Tickets added:\n```" + "\n".join(summary) + "```")
 
 @bot.command()
+@commands.has_permissions(administrator=True)
 async def removet(ctx, *args):
     name_parts = []
     summary = []
@@ -160,6 +162,7 @@ async def removet(ctx, *args):
     await ctx.send("❌ Tickets removed:\n```" + "\n".join(summary) + "```")
 
 @bot.command()
+@commands.has_permissions(administrator=True)
 async def entries(ctx):
     if not raffle_entries:
         await ctx.send("🎟️ Entries (0 total)")
@@ -179,6 +182,7 @@ async def entries(ctx):
     )
 
 @bot.command()
+@commands.has_permissions(administrator=True)
 async def drawwinner(ctx):
     if not raffle_entries:
         await ctx.send("No entries.")
@@ -194,6 +198,7 @@ async def drawwinner(ctx):
     )
 
 @bot.command()
+@commands.has_permissions(administrator=True)
 async def reset(ctx):
     raffle_entries.clear()
     user_display_names.clear()
@@ -202,6 +207,7 @@ async def reset(ctx):
 
 # ================== PASTE COMMAND ==================
 @bot.command()
+@commands.has_permissions(administrator=True)
 async def p(ctx):
     global last_batch
     last_batch = []
@@ -243,6 +249,7 @@ async def p(ctx):
 
 # ================== RESTORE COMMAND ==================
 @bot.command()
+@commands.has_permissions(administrator=True)
 async def restore(ctx):
     content = ctx.message.content[len(ctx.prefix + ctx.command.name):].strip()
     lines = content.splitlines()
@@ -281,6 +288,7 @@ async def restore(ctx):
 
 # ================== REMOVE LAST BATCH ==================
 @bot.command()
+@commands.has_permissions(administrator=True)
 async def removele(ctx):
     global last_batch
     if not last_batch:
@@ -302,6 +310,7 @@ async def removele(ctx):
 
 # ================== DONATION COMMANDS ==================
 @bot.command()
+@commands.has_permissions(administrator=True)
 async def adddn(ctx, member: discord.Member = None, amount: str = None):
     if not member or not amount:
         await ctx.send("❌ Usage: !adddn @user <amount>")
@@ -377,6 +386,7 @@ async def resetd(ctx):
     await ctx.send(message)
 
 @bot.command()
+@commands.has_permissions(administrator=True)
 async def payout(ctx, member: discord.Member = None, amount: str = None, *, description: str = None):
     if not member or not amount:
         await ctx.send("❌ Usage: !payout @user <amount> [description]")
@@ -413,6 +423,7 @@ async def payout(ctx, member: discord.Member = None, amount: str = None, *, desc
     )
 
 @bot.command()
+@commands.has_permissions(administrator=True)
 async def credit(ctx, member: discord.Member = None, amount: str = None, *, description: str = None):
     """Credits a user's total donation without affecting the clan bank total"""
     if not member or not amount:
@@ -491,6 +502,7 @@ async def setcb(ctx, amount: str = None):
 
     
 @bot.command()
+@commands.has_permissions(administrator=True)
 async def donations(ctx):
     """Displays the total gp in the clan bank"""
     await ctx.send(f"💰 Clan Bank Total: `{donations_data['clan_bank']:,}` gp")
@@ -593,6 +605,7 @@ async def setcredit(ctx, member: discord.Member = None, amount: str = None):
     )
 
 @bot.command()
+@commands.has_permissions(administrator=True)
 async def payoutnd(ctx, name: str = None, amount: str = None, *, description: str = None):
     if not name or not amount:
         await ctx.send("❌ Usage: !payoutnd <name> <amount> <description>")
@@ -627,6 +640,7 @@ async def payoutnd(ctx, name: str = None, amount: str = None, *, description: st
 
 
 @bot.command()
+@commands.has_permissions(administrator=True)
 async def checkud(ctx, member: discord.Member = None):
     if not member:
         await ctx.send("❌ Usage: !checkud @user")
