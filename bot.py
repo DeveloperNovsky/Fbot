@@ -479,7 +479,7 @@ async def donations(ctx):
 async def addds(ctx, amount: str = None, *, description: str = None):
     """
     Add a donation directly to the Clan Bank without assigning to any user.
-    Optional description can be added to note who/what the donation is for.
+    Shows which donation role the user would have had based on the amount.
     Usage: !addds <amount> [description]
     """
     if not amount:
@@ -495,6 +495,13 @@ async def addds(ctx, amount: str = None, *, description: str = None):
     donations_data["clan_bank"] += value
     save_donations()
 
+    # Determine the hypothetical donation role
+    hypothetical_role = None
+    for threshold, role_name in reversed(DONATION_ROLES):
+        if value >= threshold:
+            hypothetical_role = role_name
+            break
+
     message = (
         f"💰 **Clan Bank Updated**\n"
         f"Added: `{value:,}` gp"
@@ -502,6 +509,9 @@ async def addds(ctx, amount: str = None, *, description: str = None):
 
     if description:
         message += f"\nDescription: {description}"
+
+    if hypothetical_role:
+        message += f"\n🏅 Would qualify for role: `{hypothetical_role}`"
 
     message += f"\nNew Clan Bank Total: `{donations_data['clan_bank']:,}` gp"
 
@@ -523,6 +533,7 @@ async def checkud(ctx, member: discord.Member = None):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
 
 
 
