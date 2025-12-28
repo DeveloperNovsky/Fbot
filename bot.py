@@ -448,6 +448,26 @@ async def credit(ctx, member: discord.Member = None, amount: str = None):
         message += f"\n🏅 **New Rank Awarded:** `{awarded_role}`"
 
     await ctx.send(message)
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def setcb(ctx, amount: str = None):
+    """Set the Clan Bank total to a specified amount (admin only)"""
+    if not amount:
+        await ctx.send("❌ Usage: !setcb <amount>")
+        return
+
+    try:
+        value = parse_amount(amount)
+    except ValueError:
+        await ctx.send("❌ Invalid amount. Use 10m / 500k / 1b")
+        return
+
+    donations_data["clan_bank"] = value
+    save_donations()
+
+    await ctx.send(f"💰 **Clan Bank Total Set**\nNew Clan Bank Total: `{donations_data['clan_bank']:,}` gp")
+
     
 @bot.command()
 async def donations(ctx):
@@ -469,6 +489,7 @@ async def checkud(ctx, member: discord.Member = None):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
 
 
 
