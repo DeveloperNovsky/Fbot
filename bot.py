@@ -461,6 +461,16 @@ async def payout(ctx, member: discord.Member = None, amount: str = None):
         f"Remaining Clan Bank: `{donations_data['clan_bank']:,}` gp"
     )
 
+@bot.command()
+async def checkud(ctx, member: discord.Member = None):
+    if not member:
+        await ctx.send("❌ Usage: !checkud @user")
+        return
+
+    key = member.display_name.lower()
+    total = donations_data["donations"].get(key, 0)
+    await ctx.send(f"💰 **Total Donated**\nUser: **{member.display_name}**\nTotal Donated: `{total:,}` gp")
+
 
 @bot.command()
 async def donations(ctx):
@@ -468,6 +478,7 @@ async def donations(ctx):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
 
 
 
