@@ -517,6 +517,61 @@ async def addds(ctx, amount: str = None, *, description: str = None):
 
     await ctx.send(message)
 
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def setcredit(ctx, member: discord.Member = None, amount: str = None):
+    if not member or not amount:
+        await ctx.send("❌ Usage: !setcredit @user <amount>")
+        return
+
+    try:
+        value = parse_amount(amount)
+    except ValueError:
+        await ctx.send("❌ Invalid amount. Use 10m / 500k / 1b")
+        return
+
+    key = str(member.id)
+
+    # ✅ SET (overwrite) donation total — does NOT touch clan bank
+    donations_data["donations"][key] = value
+    save_donations()
+
+    awarded_role = None
+
+    # ===== ROLE HANDLING =====
+    for threshold, role_name in reversed(DONATION_ROLES):
+        role = discord.utils.get(ctx.guild.roles, name=role_name)
+        if not role:
+            continue
+
+        if value >= threshold:
+            if role not in member.roles:
+                # Remove lower roles
+                for _, lower_role_name in DONATION_ROLES:
+                    lower_role = discord.utils.get(ctx.guild.roles, name=lower_role_name)
+                    if lower_role and lower_role in member.roles:
+                        await member.remove_roles(lower_role)
+
+                await member.add_roles(role)
+                awarded_role = role.name
+            break
+
+    message = (
+        f"📝 **Donation Credit Set**\n"
+        f"User: **{member.display_name}**\n"
+        f"New Total Donation: `{value:,}` gp\n"
+        f"Clan Bank: `{donations_data['clan_bank']:,}` gp"
+    )
+
+    if awarded_role:
+        message += f"\n🏅 **Rank Applied:** `{awarded_role}`"
+
+    await ctx.send(
+        message,
+        allowed_mentions=discord.AllowedMentions.none()  # 🚫 no ping
+    )
+
+
 
 @bot.command()
 async def checkud(ctx, member: discord.Member = None):
@@ -533,6 +588,7 @@ async def checkud(ctx, member: discord.Member = None):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
 
 
 
