@@ -322,34 +322,27 @@ async def removele(ctx):
 
 # ================== DONATION COMMANDS ==================
 @bot.command()
-async def adddn(ctx, arg1: str, arg2: str = None):
+async def adddn(ctx, arg1: str = None, arg2: str = None):
     amount = None
-    username = None
     member = None
+    username = None
 
-    # Mention support
-    if ctx.message.mentions:
-        member = ctx.message.mentions[0]
-        username = member.display_name
-        for part in ctx.message.content.split():
-            if part.lower().endswith(("k", "m", "b")) or part.replace(",", "").isdigit():
-                amount = part
-                break
-    else:
-        if arg1.lower().endswith(("k", "m", "b")) or arg1.replace(",", "").isdigit():
-            amount = arg1
-            username = arg2
-        else:
-            username = arg1
-            amount = arg2
+    # ===== REQUIRE @MENTION =====
+    if not ctx.message.mentions:
+        await ctx.send("❌ Usage: `!adddn @username <amount>`")
+        return
 
-        member = discord.utils.find(
-            lambda m: m.display_name.lower() == username.lower(),
-            ctx.guild.members
-        )
+    member = ctx.message.mentions[0]
+    username = member.display_name
 
-    if not amount or not username:
-        await ctx.send("❌ Usage: !adddn <user> <amount>")
+    # Extract amount from message
+    for part in ctx.message.content.split():
+        if part.lower().endswith(("k", "m", "b")) or part.replace(",", "").isdigit():
+            amount = part
+            break
+
+    if not amount:
+        await ctx.send("❌ Usage: `!adddn @username <amount>`")
         return
 
     try:
@@ -358,35 +351,34 @@ async def adddn(ctx, arg1: str, arg2: str = None):
         await ctx.send("❌ Invalid amount. Use 10m / 500k / 1b")
         return
 
-    key = username.lower()
+    # ===== SAVE DONATION =====
+    key = str(member.id)  # (recommended, safer than name)
     donations_data["donations"][key] = donations_data["donations"].get(key, 0) + value
     donations_data["clan_bank"] += value
     save_donations()
 
     total_donated = donations_data["donations"][key]
-
     awarded_role = None
 
     # ===== ROLE HANDLING =====
-    if member:
-        # Find highest role they qualify for
-        for threshold, role_name in reversed(DONATION_ROLES):
-            if total_donated >= threshold:
-                role = discord.utils.get(ctx.guild.roles, name=role_name)
-                if role and role not in member.roles:
-                    # Remove lower donation roles
-                    for _, lower_role_name in DONATION_ROLES:
-                        lower_role = discord.utils.get(ctx.guild.roles, name=lower_role_name)
-                        if lower_role and lower_role in member.roles:
-                            await member.remove_roles(lower_role)
+    for threshold, role_name in reversed(DONATION_ROLES):
+        if total_donated >= threshold:
+            role = discord.utils.get(ctx.guild.roles, name=role_name)
+            if role and role not in member.roles:
+                # Remove lower donation roles
+                for _, lower_role_name in DONATION_ROLES:
+                    lower_role = discord.utils.get(ctx.guild.roles, name=lower_role_name)
+                    if lower_role and lower_role in member.roles:
+                        await member.remove_roles(lower_role)
 
-                    await member.add_roles(role)
-                    awarded_role = role.name
-                break
+                await member.add_roles(role)
+                awarded_role = role.name
+            break
 
+    # ===== OUTPUT =====
     message = (
         f"💰 **Donation Added**\n"
-        f"User: **{username}**\n"
+        f"User: **{member.display_name}**\n"
         f"Amount Credited: `{value:,}` gp\n"
         f"Total Donation to Clan Bank: `{total_donated:,}` gp\n"
         f"Clan Bank: `{donations_data['clan_bank']:,}` gp"
@@ -441,6 +433,7 @@ async def donations(ctx):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
 
 
 
