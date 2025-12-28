@@ -19,7 +19,7 @@ RAFFLE_FILE = "/data/raffle_entries.json"
 DONATIONS_FILE = "/data/donations.json"
 
 ALLOWED_CHANNELS = [
-    1033249948084477982,  # Mydiscord
+    1111111111111111111,  # Mydiscord
     1340371301654859907,  # Clan bank in Fyre Bird
     1454932497988190278,  # Fyrebird owner commands chat
     1454933219467329537,  # Fyre setup channel
@@ -659,6 +659,7 @@ async def checkud(ctx, member: discord.Member = None):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
 
 
 
