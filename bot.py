@@ -429,11 +429,11 @@ async def resetd(ctx):
 
     await ctx.send(message)
 
+# ================== PAYOUT COMMAND ==================
 @bot.command()
-@commands.has_permissions(administrator=True)
 async def payout(ctx, member: discord.Member = None, amount: str = None):
     if not member or not amount:
-        await ctx.send("❌ Usage: `!payout @username <amount>`")
+        await ctx.send("❌ Usage: !payout @user <amount>")
         return
 
     try:
@@ -442,12 +442,8 @@ async def payout(ctx, member: discord.Member = None, amount: str = None):
         await ctx.send("❌ Invalid amount. Use 10m / 500k / 1b")
         return
 
-    # Prevent negative clan bank
     if donations_data["clan_bank"] < value:
-        await ctx.send(
-            f"❌ Clan bank insufficient funds.\n"
-            f"Available: `{donations_data['clan_bank']:,}` gp"
-        )
+        await ctx.send("❌ Insufficient funds in the clan bank.")
         return
 
     # Subtract from clan bank
@@ -461,23 +457,32 @@ async def payout(ctx, member: discord.Member = None, amount: str = None):
         f"Remaining Clan Bank: `{donations_data['clan_bank']:,}` gp"
     )
 
+# ================== CHECK USER DONATION ==================
 @bot.command()
 async def checkud(ctx, member: discord.Member = None):
     if not member:
         await ctx.send("❌ Usage: !checkud @user")
         return
 
-    key = member.display_name.lower()
-    total = donations_data["donations"].get(key, 0)
-    await ctx.send(f"💰 **Total Donated**\nUser: **{member.display_name}**\nTotal Donated: `{total:,}` gp")
+    # Find the key in donations_data
+    key = None
+    for k in donations_data["donations"].keys():
+        if k.lower() == member.display_name.lower():
+            key = k
+            break
 
+    total = donations_data["donations"].get(key, 0) if key else 0
 
-@bot.command()
-async def donations(ctx):
-    await ctx.send(f"💰 Clan Bank Total: `{donations_data['clan_bank']:,}` gp")
+    await ctx.send(
+        f"💰 **Total Donation to Clan Bank**\n"
+        f"User: **{member.display_name}**\n"
+        f"Total Donated: `{total:,}` gp"
+    )
+
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
 
 
 
