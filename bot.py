@@ -18,7 +18,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 RAFFLE_FILE = "/data/raffle_entries.json"
 DONATIONS_FILE = "/data/donations.json"
 
-ALLOWED_CHANNELS = [1033249948084477982]
+ALLOWED_CHANNELS = [1454699133750349927]
 
 os.makedirs("/data", exist_ok=True)
 
@@ -634,6 +634,7 @@ async def checkud(ctx, member: discord.Member = None):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
 
 
 
