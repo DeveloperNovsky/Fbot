@@ -10,12 +10,13 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
+intents.members = True  # Required to fetch members
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ================== FILE PATHS ==================
-RAFFLE_FILE = "/data/raffle_entries.json"     # Persisted on Railway volume
-DONATIONS_FILE = "/data/donations.json"       # Persisted on Railway volume
+RAFFLE_FILE = "/data/raffle_entries.json"
+DONATIONS_FILE = "/data/donations.json"
 
 ALLOWED_CHANNELS = [1033249948084477982]
 
@@ -51,10 +52,7 @@ def load_entries():
 def save_entries():
     with open(RAFFLE_FILE, "w", encoding="utf-8") as f:
         json.dump(
-            {
-                "raffle_entries": raffle_entries,
-                "display_names": user_display_names
-            },
+            {"raffle_entries": raffle_entries, "display_names": user_display_names},
             f,
             indent=2
         )
@@ -62,7 +60,6 @@ def save_entries():
 raffle_entries, user_display_names = load_entries()
 last_batch = []
 
-# ================== RAFFLE HELPERS ==================
 def add_ticket(username, display_name=None, amount=1):
     key = username.lower()
     raffle_entries[key] = raffle_entries.get(key, 0) + amount
@@ -203,15 +200,13 @@ async def reset(ctx):
     save_entries()
     await ctx.send("✅ Raffle reset.")
 
-# ================== ✅ FIXED PASTE COMMAND ==================
+# ================== PASTE COMMAND ==================
 @bot.command()
 async def p(ctx):
-    """Paste raid log – adds tickets per name; supports optional :count"""
     global last_batch
     last_batch = []
 
-    content = ctx.message.content
-    content = content[len(ctx.prefix + ctx.command.name):].strip()
+    content = ctx.message.content[len(ctx.prefix + ctx.command.name):].strip()
     lines = content.splitlines()
 
     added = []
@@ -220,10 +215,8 @@ async def p(ctx):
         line = line.strip()
         if not line:
             continue
-
         if "|" in line:
             line = line.split("|")[0].strip()
-
         if ":" in line:
             parts = line.split(":")
             name = parts[0].strip()
@@ -234,32 +227,24 @@ async def p(ctx):
         else:
             name = line
             count = 1
-
-        if not name:
-            continue
-
         add_ticket(name, name, count)
         last_batch.extend([name.lower()] * count)
         added.append(f"{name}: {count}")
 
     save_entries()
-
     if not added:
         await ctx.send("❌ No valid names found.")
         return
 
     await ctx.send(
         f"✅ Added **{sum(int(x.split(':')[1].strip()) for x in added)}** raffle tickets:\n```" +
-        "\n".join(added) +
-        "```"
+        "\n".join(added) + "```"
     )
 
-# ================== ✅ RESTORE COMMAND ==================
+# ================== RESTORE COMMAND ==================
 @bot.command()
 async def restore(ctx):
-    """Restore raffle entries from copy-paste with exact ticket counts"""
-    content = ctx.message.content
-    content = content[len(ctx.prefix + ctx.command.name):].strip()
+    content = ctx.message.content[len(ctx.prefix + ctx.command.name):].strip()
     lines = content.splitlines()
 
     restored = []
@@ -270,7 +255,6 @@ async def restore(ctx):
         line = line.strip()
         if not line:
             continue
-
         if ":" in line:
             parts = line.split(":")
             name = parts[0].strip()
@@ -281,27 +265,23 @@ async def restore(ctx):
         else:
             name = line
             count = 1
-
         add_ticket(name, name, count)
         last_batch.extend([name.lower()] * count)
         restored.append(f"{name}: {count}")
 
     save_entries()
-
     if not restored:
         await ctx.send("❌ No valid names to restore.")
         return
 
     await ctx.send(
         f"✅ Raffle entries restored ({sum(int(x.split(':')[1].strip()) for x in restored)} tickets):\n```" +
-        "\n".join(restored) +
-        "```"
+        "\n".join(restored) + "```"
     )
 
 # ================== REMOVE LAST BATCH ==================
 @bot.command()
 async def removele(ctx):
-    """Remove the last batch of pasted tickets"""
     global last_batch
     if not last_batch:
         await ctx.send("❌ No previous paste batch to remove.")
@@ -321,7 +301,6 @@ async def removele(ctx):
     await ctx.send(f"❌ Last batch removed:\n```" + "\n".join(summary) + "```")
 
 # ================== DONATION COMMANDS ==================
-# ================== ADD DONATION COMMAND (mention only) ==================
 @bot.command()
 async def adddn(ctx, member: discord.Member = None, amount: str = None):
     if not member or not amount:
@@ -334,7 +313,7 @@ async def adddn(ctx, member: discord.Member = None, amount: str = None):
         await ctx.send("❌ Invalid amount. Use 10m / 500k / 1b")
         return
 
-    key = member.display_name.lower()
+    key = str(member.id)
     donations_data["donations"][key] = donations_data["donations"].get(key, 0) + value
     donations_data["clan_bank"] += value
     save_donations()
@@ -342,63 +321,18 @@ async def adddn(ctx, member: discord.Member = None, amount: str = None):
     total_donated = donations_data["donations"][key]
 
     awarded_role = None
-
-    # ===== ROLE HANDLING =====
-    if member:
-        # Iterate from highest to lowest donation threshold
-        for threshold, role_name in reversed(DONATION_ROLES):
-            if total_donated >= threshold:
-                role = discord.utils.get(ctx.guild.roles, name=role_name)
-                if role and role not in member.roles:
-                    # Remove any lower donation roles
-                    for _, lower_role_name in DONATION_ROLES:
-                        lower_role = discord.utils.get(ctx.guild.roles, name=lower_role_name)
-                        if lower_role and lower_role in member.roles:
-                            await member.remove_roles(lower_role)
-
-                    await member.add_roles(role)
-                    awarded_role = role.name
-                break
-
-    message = (
-        f"💰 **Donation Added**\n"
-        f"User: **{member.display_name}**\n"
-        f"Amount Credited: `{value:,}` gp\n"
-        f"Total Donation to Clan Bank: `{total_donated:,}` gp\n"
-        f"Clan Bank: `{donations_data['clan_bank']:,}` gp"
-    )
-
-    if awarded_role:
-        message += f"\n🏅 **New Rank Awarded:** `{awarded_role}`"
-
-    await ctx.send(message)
-
-
-    # ===== SAVE DONATION =====
-    key = str(member.id)  # (recommended, safer than name)
-    donations_data["donations"][key] = donations_data["donations"].get(key, 0) + value
-    donations_data["clan_bank"] += value
-    save_donations()
-
-    total_donated = donations_data["donations"][key]
-    awarded_role = None
-
-    # ===== ROLE HANDLING =====
     for threshold, role_name in reversed(DONATION_ROLES):
         if total_donated >= threshold:
             role = discord.utils.get(ctx.guild.roles, name=role_name)
             if role and role not in member.roles:
-                # Remove lower donation roles
                 for _, lower_role_name in DONATION_ROLES:
                     lower_role = discord.utils.get(ctx.guild.roles, name=lower_role_name)
                     if lower_role and lower_role in member.roles:
                         await member.remove_roles(lower_role)
-
                 await member.add_roles(role)
                 awarded_role = role.name
             break
 
-    # ===== OUTPUT =====
     message = (
         f"💰 **Donation Added**\n"
         f"User: **{member.display_name}**\n"
@@ -415,20 +349,15 @@ async def adddn(ctx, member: discord.Member = None, amount: str = None):
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def resetd(ctx):
-    # Require mention
     if not ctx.message.mentions:
         await ctx.send("❌ Usage: `!resetd @username`")
         return
-
     member = ctx.message.mentions[0]
     key = str(member.id)
-
-    # Reset donation total
     previous_total = donations_data["donations"].get(key, 0)
     donations_data["donations"][key] = 0
     save_donations()
 
-    # Remove all donation roles
     removed_roles = []
     for _, role_name in DONATION_ROLES:
         role = discord.utils.get(ctx.guild.roles, name=role_name)
@@ -442,37 +371,26 @@ async def resetd(ctx):
         f"Previous Total: `{previous_total:,}` gp\n"
         f"New Total: `0` gp"
     )
-
     if removed_roles:
-        message += (
-            "\n🧹 **Roles Removed:**\n```" +
-            "\n".join(removed_roles) +
-            "```"
-        )
+        message += "\n🧹 **Roles Removed:**\n```" + "\n".join(removed_roles) + "```"
 
     await ctx.send(message)
 
-# ================== PAYOUT COMMAND ==================
 @bot.command()
 async def payout(ctx, member: discord.Member = None, amount: str = None):
     if not member or not amount:
         await ctx.send("❌ Usage: !payout @user <amount>")
         return
-
     try:
         value = parse_amount(amount)
     except ValueError:
         await ctx.send("❌ Invalid amount. Use 10m / 500k / 1b")
         return
-
     if donations_data["clan_bank"] < value:
         await ctx.send("❌ Insufficient funds in the clan bank.")
         return
-
-    # Subtract from clan bank
     donations_data["clan_bank"] -= value
     save_donations()
-
     await ctx.send(
         f"💸 **Payout Processed**\n"
         f"User: **{member.display_name}**\n"
@@ -480,38 +398,21 @@ async def payout(ctx, member: discord.Member = None, amount: str = None):
         f"Remaining Clan Bank: `{donations_data['clan_bank']:,}` gp"
     )
 
-# ================== CHECK USER DONATION ==================
 @bot.command()
 async def checkud(ctx, member: discord.Member = None):
     if not member:
         await ctx.send("❌ Usage: !checkud @user")
         return
-
-    # Find the key in donations_data
-    key = None
-    for k in donations_data["donations"].keys():
-        if k.lower() == member.display_name.lower():
-            key = k
-            break
-
-    total = donations_data["donations"].get(key, 0) if key else 0
-
+    key = str(member.id)
+    total = donations_data["donations"].get(key, 0)
     await ctx.send(
         f"💰 **Total Donation to Clan Bank**\n"
         f"User: **{member.display_name}**\n"
         f"Total Donated: `{total:,}` gp"
     )
 
-
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
-
-
-
-
-
-
-
 
 
 
