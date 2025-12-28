@@ -123,14 +123,9 @@ async def on_ready():
 async def on_message(message):
     if message.author == bot.user:
         return
-
-    # ✅ Allow admins to run commands anywhere
-    if not message.author.guild_permissions.administrator:
-        if message.channel.id not in ALLOWED_CHANNELS:
-            return
-
+    if message.channel.id not in ALLOWED_CHANNELS:
+        return
     await bot.process_commands(message)
-
 
 # ================== RAFFLE COMMANDS ==================
 @bot.command()
@@ -688,10 +683,6 @@ async def checkud(ctx, member: discord.Member = None):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
-
-
-
-
 
 
 
