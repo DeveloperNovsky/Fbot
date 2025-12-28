@@ -413,10 +413,10 @@ async def payout(ctx, member: discord.Member = None, amount: str = None, *, desc
     )
 
 @bot.command()
-async def credit(ctx, member: discord.Member = None, amount: str = None):
+async def credit(ctx, member: discord.Member = None, amount: str = None, *, description: str = None):
     """Credits a user's total donation without affecting the clan bank total"""
     if not member or not amount:
-        await ctx.send("❌ Usage: !credit @user <amount>")
+        await ctx.send("❌ Usage: !credit @user <amount> <description>")
         return
 
     try:
@@ -454,6 +454,12 @@ async def credit(ctx, member: discord.Member = None, amount: str = None):
         f"💰 **Donation Credited**\n"
         f"User: **{member.display_name}**\n"
         f"Amount Credited: `{value:,}` gp\n"
+    )
+
+    if description:
+        message += f"Description: *{description}*\n"
+
+    message += (
         f"Total Donation to Clan Bank: `{total_donated:,}` gp\n"
         f"Clan Bank: `{donations_data['clan_bank']:,}` gp"
     )
@@ -462,6 +468,7 @@ async def credit(ctx, member: discord.Member = None, amount: str = None):
         message += f"\n🏅 **New Rank Awarded:** `{awarded_role}`"
 
     await ctx.send(message)
+
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -634,6 +641,7 @@ async def checkud(ctx, member: discord.Member = None):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
 
 
 
