@@ -646,6 +646,29 @@ async def payoutnd(ctx, name: str = None, amount: str = None, *, description: st
 
 @bot.command()
 @commands.has_permissions(administrator=True)
+async def checkall(ctx):
+    if not donations_data["donations"]:
+        await ctx.send("💰 No donations recorded yet.")
+        return
+
+    lines = []
+    total = 0
+
+    for user_id, amount in donations_data["donations"].items():
+        member = ctx.guild.get_member(int(user_id))
+        name = member.display_name if member else f"User ID {user_id}"
+        lines.append(f"{name}: {amount:,} gp")
+        total += amount
+
+    await ctx.send(
+        f"💰 **All Clan Donations** (Total: `{total:,}` gp)\n```"
+        + "\n".join(lines) +
+        "```"
+    )
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
 async def checkud(ctx, member: discord.Member = None):
     if not member:
         await ctx.send("❌ Usage: !checkud @user")
@@ -660,6 +683,7 @@ async def checkud(ctx, member: discord.Member = None):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
 
 
 
