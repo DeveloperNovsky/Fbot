@@ -321,28 +321,11 @@ async def removele(ctx):
     await ctx.send(f"❌ Last batch removed:\n```" + "\n".join(summary) + "```")
 
 # ================== DONATION COMMANDS ==================
+# ================== ADD DONATION COMMAND (mention only) ==================
 @bot.command()
-async def adddn(ctx, arg1: str = None, arg2: str = None):
-    amount = None
-    member = None
-    username = None
-
-    # ===== REQUIRE @MENTION =====
-    if not ctx.message.mentions:
-        await ctx.send("❌ Usage: `!adddn @username <amount>`")
-        return
-
-    member = ctx.message.mentions[0]
-    username = member.display_name
-
-    # Extract amount from message
-    for part in ctx.message.content.split():
-        if part.lower().endswith(("k", "m", "b")) or part.replace(",", "").isdigit():
-            amount = part
-            break
-
-    if not amount:
-        await ctx.send("❌ Usage: `!adddn @username <amount>`")
+async def adddn(ctx, member: discord.Member = None, amount: str = None):
+    if not member or not amount:
+        await ctx.send("❌ Usage: !adddn @user <amount>")
         return
 
     try:
@@ -350,6 +333,46 @@ async def adddn(ctx, arg1: str = None, arg2: str = None):
     except ValueError:
         await ctx.send("❌ Invalid amount. Use 10m / 500k / 1b")
         return
+
+    key = member.display_name.lower()
+    donations_data["donations"][key] = donations_data["donations"].get(key, 0) + value
+    donations_data["clan_bank"] += value
+    save_donations()
+
+    total_donated = donations_data["donations"][key]
+
+    awarded_role = None
+
+    # ===== ROLE HANDLING =====
+    if member:
+        # Iterate from highest to lowest donation threshold
+        for threshold, role_name in reversed(DONATION_ROLES):
+            if total_donated >= threshold:
+                role = discord.utils.get(ctx.guild.roles, name=role_name)
+                if role and role not in member.roles:
+                    # Remove any lower donation roles
+                    for _, lower_role_name in DONATION_ROLES:
+                        lower_role = discord.utils.get(ctx.guild.roles, name=lower_role_name)
+                        if lower_role and lower_role in member.roles:
+                            await member.remove_roles(lower_role)
+
+                    await member.add_roles(role)
+                    awarded_role = role.name
+                break
+
+    message = (
+        f"💰 **Donation Added**\n"
+        f"User: **{member.display_name}**\n"
+        f"Amount Credited: `{value:,}` gp\n"
+        f"Total Donation to Clan Bank: `{total_donated:,}` gp\n"
+        f"Clan Bank: `{donations_data['clan_bank']:,}` gp"
+    )
+
+    if awarded_role:
+        message += f"\n🏅 **New Rank Awarded:** `{awarded_role}`"
+
+    await ctx.send(message)
+
 
     # ===== SAVE DONATION =====
     key = str(member.id)  # (recommended, safer than name)
@@ -482,6 +505,7 @@ async def checkud(ctx, member: discord.Member = None):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
 
 
 
