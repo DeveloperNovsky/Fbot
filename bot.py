@@ -391,41 +391,43 @@ async def adddn(ctx, arg1: str = None, arg2: str = None):
 
 @bot.command()
 @commands.has_permissions(administrator=True)
-async def resetd(ctx, *, username: str):
-    member = None
-
-    # Mention support
-    if ctx.message.mentions:
-        member = ctx.message.mentions[0]
-        username = member.display_name
-    else:
-        member = discord.utils.find(
-            lambda m: m.display_name.lower() == username.lower(),
-            ctx.guild.members
-        )
-
-    key = username.lower()
-
-    if key not in donations_data["donations"]:
-        await ctx.send(f"❌ **{username}** has no recorded donations.")
+async def resetd(ctx):
+    # Require mention
+    if not ctx.message.mentions:
+        await ctx.send("❌ Usage: `!resetd @username`")
         return
 
-    # Reset donation amount
+    member = ctx.message.mentions[0]
+    key = str(member.id)
+
+    # Reset donation total
+    previous_total = donations_data["donations"].get(key, 0)
     donations_data["donations"][key] = 0
     save_donations()
 
-    # Remove donation roles
-    if member:
-        for _, role_name in DONATION_ROLES:
-            role = discord.utils.get(ctx.guild.roles, name=role_name)
-            if role and role in member.roles:
-                await member.remove_roles(role)
+    # Remove all donation roles
+    removed_roles = []
+    for _, role_name in DONATION_ROLES:
+        role = discord.utils.get(ctx.guild.roles, name=role_name)
+        if role and role in member.roles:
+            await member.remove_roles(role)
+            removed_roles.append(role.name)
 
-    await ctx.send(
-        f"♻️ **Donations Reset**\n"
-        f"User: **{username}**\n"
-        f"Total Donation to Clan Bank: `0` gp"
+    message = (
+        f"♻️ **Donation Reset**\n"
+        f"User: **{member.display_name}**\n"
+        f"Previous Total: `{previous_total:,}` gp\n"
+        f"New Total: `0` gp"
     )
+
+    if removed_roles:
+        message += (
+            "\n🧹 **Roles Removed:**\n```" +
+            "\n".join(removed_roles) +
+            "```"
+        )
+
+    await ctx.send(message)
 
 @bot.command()
 async def donations(ctx):
@@ -433,6 +435,7 @@ async def donations(ctx):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
 
 
 
