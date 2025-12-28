@@ -397,6 +397,57 @@ async def payout(ctx, member: discord.Member = None, amount: str = None):
         f"Amount Paid Out: `{value:,}` gp\n"
         f"Remaining Clan Bank: `{donations_data['clan_bank']:,}` gp"
     )
+
+@bot.command()
+async def credit(ctx, member: discord.Member = None, amount: str = None):
+    """Credits a user's total donation without affecting the clan bank total"""
+    if not member or not amount:
+        await ctx.send("❌ Usage: !credit @user <amount>")
+        return
+
+    try:
+        value = parse_amount(amount)
+    except ValueError:
+        await ctx.send("❌ Invalid amount. Use 10m / 500k / 1b")
+        return
+
+    # Credit the user's donation total without changing the clan bank
+    key = str(member.id)  # Use member ID for unique key
+    donations_data["donations"][key] = donations_data["donations"].get(key, 0) + value
+    save_donations()
+
+    total_donated = donations_data["donations"][key]
+
+    awarded_role = None
+
+    # ===== ROLE HANDLING =====
+    for threshold, role_name in reversed(DONATION_ROLES):
+        if total_donated >= threshold:
+            role = discord.utils.get(ctx.guild.roles, name=role_name)
+            if role and role not in member.roles:
+                # Remove lower donation roles
+                for _, lower_role_name in DONATION_ROLES:
+                    lower_role = discord.utils.get(ctx.guild.roles, name=lower_role_name)
+                    if lower_role and lower_role in member.roles:
+                        await member.remove_roles(lower_role)
+
+                await member.add_roles(role)
+                awarded_role = role.name
+            break
+
+    # Output message
+    message = (
+        f"💰 **Donation Credited**\n"
+        f"User: **{member.display_name}**\n"
+        f"Amount Credited: `{value:,}` gp\n"
+        f"Total Donation to Clan Bank: `{total_donated:,}` gp\n"
+        f"Clan Bank: `{donations_data['clan_bank']:,}` gp"
+    )
+
+    if awarded_role:
+        message += f"\n🏅 **New Rank Awarded:** `{awarded_role}`"
+
+    await ctx.send(message)
     
 @bot.command()
 async def donations(ctx):
@@ -418,6 +469,7 @@ async def checkud(ctx, member: discord.Member = None):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
 
 
 
