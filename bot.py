@@ -377,25 +377,39 @@ async def resetd(ctx):
     await ctx.send(message)
 
 @bot.command()
-async def payout(ctx, member: discord.Member = None, amount: str = None):
+async def payout(ctx, member: discord.Member = None, amount: str = None, *, description: str = None):
     if not member or not amount:
-        await ctx.send("❌ Usage: !payout @user <amount>")
+        await ctx.send("❌ Usage: !payout @user <amount> [description]")
         return
+
     try:
         value = parse_amount(amount)
     except ValueError:
         await ctx.send("❌ Invalid amount. Use 10m / 500k / 1b")
         return
+
     if donations_data["clan_bank"] < value:
         await ctx.send("❌ Insufficient funds in the clan bank.")
         return
+
+    # Subtract from clan bank
     donations_data["clan_bank"] -= value
     save_donations()
-    await ctx.send(
+
+    message = (
         f"💸 **Payout Processed**\n"
         f"User: **{member.display_name}**\n"
         f"Amount Paid Out: `{value:,}` gp\n"
-        f"Remaining Clan Bank: `{donations_data['clan_bank']:,}` gp"
+    )
+
+    if description:
+        message += f"Description: *{description}*\n"
+
+    message += f"Remaining Clan Bank: `{donations_data['clan_bank']:,}` gp"
+
+    await ctx.send(
+        message,
+        allowed_mentions=discord.AllowedMentions.none()  # 🚫 no ping
     )
 
 @bot.command()
@@ -588,6 +602,7 @@ async def checkud(ctx, member: discord.Member = None):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
 
 
 
