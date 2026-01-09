@@ -130,22 +130,31 @@ async def on_message(message):
 # ================== RAFFLE COMMANDS ==================
 @bot.command()
 @commands.has_permissions(administrator=True)
-async def addt(ctx, *args):
-    name_parts = []
-    summary = []
+async def addt(ctx, *, input: str):
+    parts = input.strip().split()
 
-    for arg in args:
-        if arg.isdigit():
-            tickets = int(arg)
-            name = " ".join(name_parts)
-            add_ticket(name, name, tickets)
-            summary.append(f"{name}: +{tickets}")
-            name_parts = []
-        else:
-            name_parts.append(arg)
+    if len(parts) < 2:
+        await ctx.send("❌ Usage: !addt <name> <tickets>")
+        return
 
+    # ✅ Last argument must be the ticket count
+    if not parts[-1].isdigit():
+        await ctx.send("❌ Ticket count must be the LAST value.")
+        return
+
+    tickets = int(parts[-1])
+    name = " ".join(parts[:-1])
+
+    # Normalize spacing
+    name = " ".join(name.split())
+
+    add_ticket(name, name, tickets)
     save_entries()
-    await ctx.send("✅ Tickets added:\n```" + "\n".join(summary) + "```")
+
+    await ctx.send(
+        f"✅ Tickets added:\n```{name}: +{tickets}```"
+    )
+
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -677,6 +686,7 @@ async def checkud(ctx, member: discord.Member = None):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
 
 
 
