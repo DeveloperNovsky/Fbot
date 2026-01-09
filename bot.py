@@ -226,8 +226,16 @@ async def p(ctx):
         line = line.strip()
         if not line:
             continue
+
+        # 🧹 Remove comments after |
         if "|" in line:
             line = line.split("|")[0].strip()
+
+        # ✂️ REMOVE TIME / NOTES AFTER " - "
+        if " - " in line:
+            line = line.split(" - ")[0].strip()
+
+        # 🎟️ Ticket parsing
         if ":" in line:
             parts = line.split(":")
             name = parts[0].strip()
@@ -238,19 +246,26 @@ async def p(ctx):
         else:
             name = line
             count = 1
+
+        if not name:
+            continue
+
         add_ticket(name, name, count)
         last_batch.extend([name.lower()] * count)
         added.append(f"{name}: {count}")
 
     save_entries()
+
     if not added:
         await ctx.send("❌ No valid names found.")
         return
 
     await ctx.send(
-        f"✅ Added **{sum(int(x.split(':')[1].strip()) for x in added)}** raffle tickets:\n```" +
-        "\n".join(added) + "```"
+        f"✅ Added **{sum(int(x.split(':')[1]) for x in added)}** raffle tickets:\n```"
+        + "\n".join(added) +
+        "```"
     )
+
 
 # ================== RESTORE COMMAND ==================
 @bot.command()
@@ -659,6 +674,7 @@ async def checkud(ctx, member: discord.Member = None):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
 
 
 
