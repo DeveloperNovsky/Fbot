@@ -231,24 +231,26 @@ async def p(ctx):
         if "|" in line:
             line = line.split("|")[0].strip()
 
-        # ✂️ REMOVE TIME / NOTES AFTER " - "
+        # ✂️ Remove notes after " - "
         if " - " in line:
             line = line.split(" - ")[0].strip()
 
-        # 🎟️ Ticket parsing
-        if ":" in line:
-            parts = line.split(":")
+        # ✅ Normalize spacing (FIX)
+        name = " ".join(line.split())
+
+        if not name:
+            continue
+
+        # 🎟️ Optional count parsing (still supported)
+        if ":" in name:
+            parts = name.split(":")
             name = parts[0].strip()
             try:
                 count = int(parts[1].strip())
             except ValueError:
                 count = 1
         else:
-            name = line
             count = 1
-
-        if not name:
-            continue
 
         add_ticket(name, name, count)
         last_batch.extend([name.lower()] * count)
@@ -265,6 +267,7 @@ async def p(ctx):
         + "\n".join(added) +
         "```"
     )
+
 
 
 # ================== RESTORE COMMAND ==================
@@ -674,6 +677,7 @@ async def checkud(ctx, member: discord.Member = None):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
 
 
 
