@@ -181,38 +181,51 @@ async def addt(ctx, *, input: str):
 
 @bot.command()
 @commands.has_permissions(administrator=True)
-async def removet(ctx, *args):
+async def removet(ctx, *, input: str):
     """
-    Remove tickets from usernames.
-    Supports multi-word usernames if enclosed in quotes.
-    Example: !removet "Jare171 Btw" 1 "Trainman33" 2
+    Remove tickets from multiple users at once.
+    Multi-word usernames do NOT require quotes.
+    Syntax: !removet <username1> <amount1> <username2> <amount2> ...
+    Example: !removet Trainman33 1 Clicked Off 2
     """
-    if not args:
-        await ctx.send("❌ Usage: !removet <username> <amount>")
+    parts = input.strip().split()
+    if len(parts) < 2:
+        await ctx.send("❌ Usage: !removet <name> <tickets> [<name> <tickets> ...]")
         return
 
-    # Parse quotes properly
-    parsed = shlex.split(" ".join(args))
     summary = []
     i = 0
 
-    while i < len(parsed):
-        username_parts = []
-        # Collect all parts until a number is reached
-        while i < len(parsed) and not parsed[i].isdigit():
-            username_parts.append(parsed[i])
-            i += 1
-        if i >= len(parsed):
-            break
-        amount = int(parsed[i])
-        i += 1
+    while i < len(parts) - 1:
+        # The ticket count is always the last word for current user
+        ticket_str = parts[i + 1]
 
-        username = " ".join(username_parts)
-        remove_ticket(username, amount)
-        summary.append(f"{username}: -{amount}")
+        if not ticket_str.isdigit():
+            await ctx.send(f"❌ Ticket count must be a number, got: {ticket_str}")
+            return
+
+        ticket_count = int(ticket_str)
+
+        # Everything before the ticket count is the username
+        username_parts = [parts[i]]
+        j = i + 1
+        while j < len(parts) - 1 and not parts[j + 1].isdigit():
+            j += 1
+            username_parts.append(parts[j])
+
+        username = " ".join(username_parts).strip()
+
+        remove_ticket(username, ticket_count)
+        summary.append(f"{username}: -{ticket_count}")
+
+        # Move index to the part after the ticket count
+        i = j + 2
 
     save_entries()
-    await ctx.send("❌ Tickets removed:\n```" + "\n".join(summary) + "```")
+    if summary:
+        await ctx.send("❌ Tickets removed:\n```" + "\n".join(summary) + "```")
+    else:
+        await ctx.send("❌ No valid entries found.")
 
 
 @bot.command()
@@ -726,6 +739,7 @@ async def checkud(ctx, member: discord.Member = None):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
 
 
 
