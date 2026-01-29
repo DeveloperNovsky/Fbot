@@ -130,35 +130,62 @@ async def on_message(message):
     await bot.process_commands(message)
 
 # ================== RAFFLE COMMANDS ==================
+import shlex
+
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def addt(ctx, *, input: str):
-    parts = input.strip().split()
+    """
+    Add tickets to multiple users at once.
+    Each username must be followed by a ticket count.
+    Multi-word usernames can be quoted.
+
+    Example:
+    !addt Clicked Off 1 Trainman33 1
+    !addt "Clicked Off" 2 "Trainman33" 3
+    """
+    try:
+        parts = shlex.split(input)  # respects quotes
+    except ValueError as e:
+        await ctx.send(f"❌ Invalid input: {e}")
+        return
 
     if len(parts) < 2:
-        await ctx.send("❌ Usage: !addt <name> <tickets>")
+        await ctx.send("❌ Usage: !addt <name> <tickets> [<name> <tickets> ...]")
         return
 
-    # ✅ Last argument must be the ticket count
-    if not parts[-1].isdigit():
-        await ctx.send("❌ Ticket count must be the LAST value.")
+    summary = []
+    i = 0
+
+    while i < len(parts):
+        username_parts = []
+
+        # Collect everything until a number is found (ticket count)
+        while i < len(parts) and not parts[i].isdigit():
+            username_parts.append(parts[i])
+            i += 1
+
+        if i >= len(parts):
+            break  # No ticket count found after username
+
+        ticket_count = int(parts[i])
+        i += 1
+
+        username = " ".join(username_parts).strip()
+        if not username:
+            continue
+
+        # Add tickets
+        add_ticket(username, username, ticket_count)
+        summary.append(f"{username}: +{ticket_count}")
+
+    if not summary:
+        await ctx.send("❌ No valid entries found.")
         return
 
-    tickets = int(parts[-1])
-    name = " ".join(parts[:-1])
-
-    # Normalize spacing
-    name = " ".join(name.split())
-
-    add_ticket(name, name, tickets)
     save_entries()
+    await ctx.send("✅ Tickets added:\n```" + "\n".join(summary) + "```")
 
-    await ctx.send(
-        f"✅ Tickets added:\n```{name}: +{tickets}```"
-    )
-
-
-import shlex
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -707,6 +734,7 @@ async def checkud(ctx, member: discord.Member = None):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
 
 
 
