@@ -114,6 +114,14 @@ def parse_amount(amount: str) -> int:
         return int(amount)
     raise ValueError
 
+
+bad_key = "Jare171 Btw Trainman33 1 Clicked off: 1".lower()
+if bad_key in raffle_entries:
+    del raffle_entries[bad_key]
+    user_display_names.pop(bad_key, None)
+    save_entries()  # make sure you call this to persist
+    print("Removed entry successfully!")
+
 # ================== EVENTS ==================
 @bot.event
 async def on_ready():
@@ -705,6 +713,7 @@ async def checkud(ctx, member: discord.Member = None):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
 
 
 
