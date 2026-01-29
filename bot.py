@@ -472,6 +472,45 @@ async def resetd(ctx):
 
 @bot.command()
 @commands.has_permissions(administrator=True)
+async def removetotal(ctx, *, input: str):
+    """
+    Completely remove one or more users from the raffle.
+    Multi-word usernames do NOT require quotes.
+    Syntax: !removetotal <username1> [<username2> ...]
+    Example: !removetotal Trainman33 Bookwormlady Clicked Off
+    """
+    parts = input.strip().split()
+    if not parts:
+        await ctx.send("❌ Usage: !removetotal <username1> [<username2> ...]")
+        return
+
+    summary = []
+    i = 0
+    while i < len(parts):
+        # Collect username until next username (or end)
+        username_parts = [parts[i]]
+        j = i + 1
+        while j < len(parts) and not parts[j].isdigit():
+            username_parts.append(parts[j])
+            j += 1
+
+        username = " ".join(username_parts).strip()
+
+        if username.lower() in raffle_entries:
+            raffle_entries.pop(username.lower())
+            user_display_names.pop(username.lower(), None)
+            summary.append(f"{username}: removed completely")
+        else:
+            summary.append(f"{username}: not found")
+
+        i = j
+
+    save_entries()
+    await ctx.send("❌ Users removed totally:\n```" + "\n".join(summary) + "```")
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
 async def payout(ctx, member: discord.Member = None, amount: str = None, *, description: str = None):
     if not member or not amount:
         await ctx.send("❌ Usage: !payout @user <amount> [description]")
@@ -739,6 +778,7 @@ async def checkud(ctx, member: discord.Member = None):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
 
 
 
