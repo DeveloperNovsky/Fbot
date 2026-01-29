@@ -156,24 +156,43 @@ async def addt(ctx, *, input: str):
     )
 
 
+import shlex
+
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def removet(ctx, *args):
-    name_parts = []
-    summary = []
+    """
+    Remove tickets from usernames.
+    Supports multi-word usernames if enclosed in quotes.
+    Example: !removet "Jare171 Btw" 1 "Trainman33" 2
+    """
+    if not args:
+        await ctx.send("❌ Usage: !removet <username> <amount>")
+        return
 
-    for arg in args:
-        if arg.isdigit():
-            tickets = int(arg)
-            name = " ".join(name_parts)
-            remove_ticket(name, tickets)
-            summary.append(f"{name}: -{tickets}")
-            name_parts = []
-        else:
-            name_parts.append(arg)
+    # Parse quotes properly
+    parsed = shlex.split(" ".join(args))
+    summary = []
+    i = 0
+
+    while i < len(parsed):
+        username_parts = []
+        # Collect all parts until a number is reached
+        while i < len(parsed) and not parsed[i].isdigit():
+            username_parts.append(parsed[i])
+            i += 1
+        if i >= len(parsed):
+            break
+        amount = int(parsed[i])
+        i += 1
+
+        username = " ".join(username_parts)
+        remove_ticket(username, amount)
+        summary.append(f"{username}: -{amount}")
 
     save_entries()
     await ctx.send("❌ Tickets removed:\n```" + "\n".join(summary) + "```")
+
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -686,6 +705,7 @@ async def checkud(ctx, member: discord.Member = None):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
 
 
 
