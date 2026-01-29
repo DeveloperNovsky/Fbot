@@ -130,32 +130,25 @@ async def on_message(message):
     await bot.process_commands(message)
 
 # ================== RAFFLE COMMANDS ==================
-import shlex
-
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def addt(ctx, *, input: str):
     """
     Add tickets to multiple users at once.
-    Multi-word usernames and usernames with numbers are supported.
+    Multi-word usernames do NOT require quotes.
     Syntax: !addt <username1> <tickets1> <username2> <tickets2> ...
-    Multi-word usernames can be quoted.
     """
 
-    try:
-        parts = shlex.split(input)
-    except ValueError as e:
-        await ctx.send(f"❌ Invalid input: {e}")
-        return
-
+    parts = input.strip().split()
     if len(parts) < 2:
         await ctx.send("❌ Usage: !addt <name> <tickets> [<name> <tickets> ...]")
         return
 
     summary = []
     i = 0
+
     while i < len(parts) - 1:
-        # The last part is always the ticket count for the current username
+        # Ticket count is always the last word for current user
         ticket_str = parts[i + 1]
 
         if not ticket_str.isdigit():
@@ -165,11 +158,8 @@ async def addt(ctx, *, input: str):
         ticket_count = int(ticket_str)
 
         # Everything before ticket count is username
-        username = parts[i]
-
-        # Handle multi-word usernames by collecting all until ticket count
+        username_parts = [parts[i]]
         j = i + 1
-        username_parts = [username]
         while j < len(parts) - 1 and not parts[j + 1].isdigit():
             j += 1
             username_parts.append(parts[j])
@@ -180,13 +170,14 @@ async def addt(ctx, *, input: str):
         summary.append(f"{username}: +{ticket_count}")
 
         # Move index to the part after the ticket count
-        i = j + 1
+        i = j + 2
 
     save_entries()
     if summary:
         await ctx.send("✅ Tickets added:\n```" + "\n".join(summary) + "```")
     else:
         await ctx.send("❌ No valid entries found.")
+
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -735,6 +726,7 @@ async def checkud(ctx, member: discord.Member = None):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
 
 
 
