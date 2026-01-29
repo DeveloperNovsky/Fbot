@@ -138,14 +138,11 @@ async def addt(ctx, *, input: str):
     """
     Add tickets to multiple users at once.
     Each username must be followed by a ticket count.
+    Usernames can include numbers.
     Multi-word usernames can be quoted.
-
-    Example:
-    !addt Clicked Off 1 Trainman33 1
-    !addt "Clicked Off" 2 "Trainman33" 3
     """
     try:
-        parts = shlex.split(input)  # respects quotes
+        parts = shlex.split(input)
     except ValueError as e:
         await ctx.send(f"❌ Invalid input: {e}")
         return
@@ -158,26 +155,30 @@ async def addt(ctx, *, input: str):
     i = 0
 
     while i < len(parts):
-        username_parts = []
+        # Last part must always be a number (ticket count)
+        if i + 1 >= len(parts):
+            await ctx.send(f"❌ Missing ticket count for: {' '.join(parts[i:])}")
+            return
 
-        # Collect everything until a number is found (ticket count)
-        while i < len(parts) and not parts[i].isdigit():
-            username_parts.append(parts[i])
-            i += 1
+        ticket_str = parts[i + 1]
+        if not ticket_str.isdigit():
+            await ctx.send(f"❌ Ticket count must be a number, got: {ticket_str}")
+            return
 
-        if i >= len(parts):
-            break  # No ticket count found after username
+        ticket_count = int(ticket_str)
+        username = parts[i]  # start with first part
 
-        ticket_count = int(parts[i])
-        i += 1
+        # Collect extra parts if username is multi-word until we reach ticket count
+        j = i + 1
+        while j - i < len(parts) and not parts[j].isdigit():
+            username += " " + parts[j]
+            j += 1
 
-        username = " ".join(username_parts).strip()
-        if not username:
-            continue
-
-        # Add tickets
+        username = username.strip()
         add_ticket(username, username, ticket_count)
         summary.append(f"{username}: +{ticket_count}")
+
+        i = j + 1  # move to next username
 
     if not summary:
         await ctx.send("❌ No valid entries found.")
@@ -185,7 +186,6 @@ async def addt(ctx, *, input: str):
 
     save_entries()
     await ctx.send("✅ Tickets added:\n```" + "\n".join(summary) + "```")
-
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -734,6 +734,7 @@ async def checkud(ctx, member: discord.Member = None):
 
 # ================== START BOT ==================
 bot.run(DISCORD_TOKEN)
+
 
 
 
