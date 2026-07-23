@@ -6,11 +6,15 @@ from collections import defaultdict
 import discord
 from discord import app_commands
 from discord.ext import commands
-from googletrans import Translator
+from deep_translator import GoogleTranslator
 
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 
+
+# =========================
+# LIMIT SETTINGS
+# =========================
 
 USER_COOLDOWN = 8
 USER_MINUTE_LIMIT = 10
@@ -21,6 +25,10 @@ CACHE_HOURS = 24
 MAX_MESSAGE_LENGTH = 1000
 
 
+# =========================
+# STORAGE
+# =========================
+
 DATA = "/data" if os.path.exists("/data") else "."
 os.makedirs(DATA, exist_ok=True)
 
@@ -29,18 +37,27 @@ USAGE_FILE = f"{DATA}/usage.json"
 
 
 def load(file, default):
+
     if os.path.exists(file):
         with open(file, "r") as f:
             return json.load(f)
+
     return default
 
 
+
 def save(file, data):
+
     with open(file, "w") as f:
         json.dump(data, f, indent=2)
 
 
-cache = load(CACHE_FILE, {})
+
+cache = load(
+    CACHE_FILE,
+    {}
+)
+
 
 usage = load(
     USAGE_FILE,
@@ -52,21 +69,28 @@ usage = load(
 )
 
 
-# Reset daily usage
+# Reset daily counters
+
 today = time.strftime("%Y-%m-%d")
 
 if usage.get("date") != today:
+
     usage = {
         "users": {},
         "global": 0,
         "date": today
     }
 
-    save(USAGE_FILE, usage)
+    save(
+        USAGE_FILE,
+        usage
+    )
 
 
 
-translator = Translator()
+# =========================
+# DISCORD SETUP
+# =========================
 
 
 intents = discord.Intents.default()
@@ -79,9 +103,16 @@ bot = commands.Bot(
 )
 
 
-cooldowns = {}
-minute = defaultdict(list)
 
+cooldowns = {}
+
+minute_usage = defaultdict(list)
+
+
+
+# =========================
+# TRANSLATION FUNCTION
+# =========================
 
 
 async def translate_message(
@@ -90,136 +121,171 @@ async def translate_message(
     target: str
 ):
 
+
     if message.author.bot:
+
         await interaction.response.send_message(
             "Bots cannot be translated.",
             ephemeral=True
         )
+
         return
+
 
 
     text = message.content.strip()
 
 
+
     if not text:
+
         await interaction.response.send_message(
             "No text found.",
             ephemeral=True
         )
+
         return
+
 
 
     if len(text) > MAX_MESSAGE_LENGTH:
+
         await interaction.response.send_message(
-            "Message too long.",
+            "Message is too long.",
             ephemeral=True
         )
+
         return
 
 
 
-    uid = str(interaction.user.id)
-
     now = time.time()
+
+    user_id = str(interaction.user.id)
 
 
 
     # cooldown
-    if uid in cooldowns:
 
-        if now - cooldowns[uid] < USER_COOLDOWN:
+    if user_id in cooldowns:
+
+        if now - cooldowns[user_id] < USER_COOLDOWN:
 
             await interaction.response.send_message(
                 "Please wait before translating again.",
                 ephemeral=True
             )
+
             return
 
 
-    cooldowns[uid] = now
+
+    cooldowns[user_id] = now
 
 
 
-    # per minute
-    minute[uid] = [
-        x for x in minute[uid]
-        if now - x < 60
+    # minute limit
+
+    minute_usage[user_id] = [
+
+        t for t in minute_usage[user_id]
+
+        if now - t < 60
+
     ]
 
 
-    if len(minute[uid]) >= USER_MINUTE_LIMIT:
+    if len(minute_usage[user_id]) >= USER_MINUTE_LIMIT:
+
 
         await interaction.response.send_message(
             "You reached the minute limit.",
             ephemeral=True
         )
+
         return
 
 
-    minute[uid].append(now)
+
+    minute_usage[user_id].append(now)
 
 
 
-    # daily
-    user_count = usage["users"].get(uid,0)
+    # daily limits
+
+    current_user = usage["users"].get(
+        user_id,
+        0
+    )
 
 
-    if user_count >= USER_DAILY_LIMIT:
+
+    if current_user >= USER_DAILY_LIMIT:
+
 
         await interaction.response.send_message(
-            "You reached your daily limit.",
+            "You reached your daily translation limit.",
             ephemeral=True
         )
+
         return
 
 
 
     if usage["global"] >= GLOBAL_DAILY_LIMIT:
 
+
         await interaction.response.send_message(
-            "The bot daily limit has been reached.",
+            "The bot has reached its daily global limit.",
             ephemeral=True
         )
+
         return
 
 
 
-    await interaction.response.defer(ephemeral=True)
+    await interaction.response.defer(
+        ephemeral=True
+    )
 
 
 
-    key = f"{target}:{text}"
+    # CACHE
+
+    cache_key = f"{target}:{text}"
 
 
 
-    if key in cache:
-
-        if now - cache[key]["time"] < CACHE_HOURS * 3600:
-
-            result = cache[key]["text"]
-
-        else:
-            del cache[key]
-            result = None
-
-    else:
-        result = None
+    result = None
 
 
+
+    if cache_key in cache:
+
+        if now - cache[cache_key]["time"] < CACHE_HOURS * 3600:
+
+            result = cache[cache_key]["text"]
+
+
+
+    # Translate if not cached
 
     if result is None:
 
-        translated = translator.translate(
-            text,
-            dest=target
-        )
 
-        result = translated.text
+        result = GoogleTranslator(
+            source="auto",
+            target=target
+        ).translate(text)
 
 
-        cache[key] = {
+
+        cache[cache_key] = {
+
             "text": result,
+
             "time": now
+
         }
 
 
@@ -230,8 +296,12 @@ async def translate_message(
 
 
 
-    usage["users"][uid] = user_count + 1
+    # Usage tracking
+
+    usage["users"][user_id] = current_user + 1
+
     usage["global"] += 1
+
 
     save(
         USAGE_FILE,
@@ -259,6 +329,7 @@ async def translate_message(
     )
 
 
+
     await interaction.followup.send(
         embed=embed,
         ephemeral=True
@@ -266,17 +337,15 @@ async def translate_message(
 
 
 
-
-
-# ==========================
-# DISCORD RIGHT CLICK APPS
-# ==========================
+# =========================
+# DISCORD APP COMMANDS
+# =========================
 
 
 @app_commands.context_menu(
     name="Translate to English"
 )
-async def translate_english(
+async def translate_to_english(
     interaction: discord.Interaction,
     message: discord.Message
 ):
@@ -292,7 +361,7 @@ async def translate_english(
 @app_commands.context_menu(
     name="Translate to Spanish"
 )
-async def translate_spanish(
+async def translate_to_spanish(
     interaction: discord.Interaction,
     message: discord.Message
 ):
@@ -305,17 +374,25 @@ async def translate_spanish(
 
 
 
+# =========================
+# START BOT
+# =========================
+
 
 @bot.event
 async def on_ready():
 
-    bot.tree.add_command(
-        translate_english
-    )
+    # Prevent duplicate registrations
 
-    bot.tree.add_command(
-        translate_spanish
-    )
+    if not bot.tree.get_commands():
+
+        bot.tree.add_command(
+            translate_to_english
+        )
+
+        bot.tree.add_command(
+            translate_to_spanish
+        )
 
 
     await bot.tree.sync()
@@ -326,10 +403,5 @@ async def on_ready():
     )
 
 
+
 bot.run(TOKEN)
-
-
-
-
-
-
