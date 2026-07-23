@@ -1,124 +1,332 @@
-import os, json, time
+import os
+import json
+import time
 from collections import defaultdict
+
 import discord
 from discord import app_commands
 from discord.ext import commands
 from googletrans import Translator
 
-TOKEN=os.getenv("DISCORD_TOKEN","YOUR_TOKEN")
 
-USER_COOLDOWN=8
-USER_MINUTE_LIMIT=10
-USER_DAILY_LIMIT=100
-GLOBAL_DAILY_LIMIT=1500
-CACHE_HOURS=24
-MAX_MESSAGE_LENGTH=1000
+TOKEN = os.getenv("DISCORD_TOKEN")
 
-DATA="/data" if os.path.exists("/data") else "."
-os.makedirs(DATA,exist_ok=True)
 
-CACHE_FILE=f"{DATA}/cache.json"
-USAGE_FILE=f"{DATA}/usage.json"
+USER_COOLDOWN = 8
+USER_MINUTE_LIMIT = 10
+USER_DAILY_LIMIT = 100
+GLOBAL_DAILY_LIMIT = 1500
 
-def load(p,d):
-    if os.path.exists(p):
-        return json.load(open(p))
-    return d
+CACHE_HOURS = 24
+MAX_MESSAGE_LENGTH = 1000
 
-def save(p,d):
-    json.dump(d,open(p,"w"),indent=2)
 
-cache=load(CACHE_FILE,{})
-usage=load(USAGE_FILE,{"users":{},"global":0})
+DATA = "/data" if os.path.exists("/data") else "."
+os.makedirs(DATA, exist_ok=True)
 
-translator=Translator()
+CACHE_FILE = f"{DATA}/cache.json"
+USAGE_FILE = f"{DATA}/usage.json"
 
-intents=discord.Intents.default()
-bot=commands.Bot(command_prefix="!",intents=intents)
 
-cooldowns={}
-minute=defaultdict(list)
+def load(file, default):
+    if os.path.exists(file):
+        with open(file, "r") as f:
+            return json.load(f)
+    return default
 
-async def translate(inter:discord.Interaction,target:str):
-    msg=inter.target
-    if msg.author.bot:
-        return await inter.response.send_message("Bots cannot be translated.",ephemeral=True)
-    text=msg.content.strip()
+
+def save(file, data):
+    with open(file, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+cache = load(CACHE_FILE, {})
+
+usage = load(
+    USAGE_FILE,
+    {
+        "users": {},
+        "global": 0,
+        "date": time.strftime("%Y-%m-%d")
+    }
+)
+
+
+# Reset daily usage
+today = time.strftime("%Y-%m-%d")
+
+if usage.get("date") != today:
+    usage = {
+        "users": {},
+        "global": 0,
+        "date": today
+    }
+
+    save(USAGE_FILE, usage)
+
+
+
+translator = Translator()
+
+
+intents = discord.Intents.default()
+intents.message_content = True
+
+
+bot = commands.Bot(
+    command_prefix="!",
+    intents=intents
+)
+
+
+cooldowns = {}
+minute = defaultdict(list)
+
+
+
+async def translate_message(
+    interaction: discord.Interaction,
+    message: discord.Message,
+    target: str
+):
+
+    if message.author.bot:
+        await interaction.response.send_message(
+            "Bots cannot be translated.",
+            ephemeral=True
+        )
+        return
+
+
+    text = message.content.strip()
+
+
     if not text:
-        return await inter.response.send_message("No text.",ephemeral=True)
-    if len(text)>MAX_MESSAGE_LENGTH:
-        return await inter.response.send_message("Message too long.",ephemeral=True)
+        await interaction.response.send_message(
+            "No text found.",
+            ephemeral=True
+        )
+        return
 
-    now=time.time()
-    uid=str(inter.user.id)
-    if uid in cooldowns and now-cooldowns[uid]<USER_COOLDOWN:
-        return await inter.response.send_message("Cooldown active.",ephemeral=True)
-    cooldowns[uid]=now
 
-    minute[uid]=[t for t in minute[uid] if now-t<60]
-    if len(minute[uid])>=USER_MINUTE_LIMIT:
-        return await inter.response.send_message("Minute limit reached.",ephemeral=True)
+    if len(text) > MAX_MESSAGE_LENGTH:
+        await interaction.response.send_message(
+            "Message too long.",
+            ephemeral=True
+        )
+        return
+
+
+
+    uid = str(interaction.user.id)
+
+    now = time.time()
+
+
+
+    # cooldown
+    if uid in cooldowns:
+
+        if now - cooldowns[uid] < USER_COOLDOWN:
+
+            await interaction.response.send_message(
+                "Please wait before translating again.",
+                ephemeral=True
+            )
+            return
+
+
+    cooldowns[uid] = now
+
+
+
+    # per minute
+    minute[uid] = [
+        x for x in minute[uid]
+        if now - x < 60
+    ]
+
+
+    if len(minute[uid]) >= USER_MINUTE_LIMIT:
+
+        await interaction.response.send_message(
+            "You reached the minute limit.",
+            ephemeral=True
+        )
+        return
+
+
     minute[uid].append(now)
 
-    u=usage["users"].setdefault(uid,0)
-    if u>=USER_DAILY_LIMIT:
-        return await inter.response.send_message("Daily limit reached.",ephemeral=True)
-    if usage["global"]>=GLOBAL_DAILY_LIMIT:
-        return await inter.response.send_message("Global limit reached.",ephemeral=True)
 
-    key=f"{target}:{text}"
-    if key in cache and now-cache[key]["time"]<CACHE_HOURS*3600:
-        result=cache[key]["text"]
+
+    # daily
+    user_count = usage["users"].get(uid,0)
+
+
+    if user_count >= USER_DAILY_LIMIT:
+
+        await interaction.response.send_message(
+            "You reached your daily limit.",
+            ephemeral=True
+        )
+        return
+
+
+
+    if usage["global"] >= GLOBAL_DAILY_LIMIT:
+
+        await interaction.response.send_message(
+            "The bot daily limit has been reached.",
+            ephemeral=True
+        )
+        return
+
+
+
+    await interaction.response.defer(ephemeral=True)
+
+
+
+    key = f"{target}:{text}"
+
+
+
+    if key in cache:
+
+        if now - cache[key]["time"] < CACHE_HOURS * 3600:
+
+            result = cache[key]["text"]
+
+        else:
+            del cache[key]
+            result = None
+
     else:
-        tr=translator.translate(text,dest=target)
-        result=tr.text
-        cache[key]={"text":result,"time":now}
-        save(CACHE_FILE,cache)
+        result = None
 
-    usage["users"][uid]+=1
-    usage["global"]+=1
-    save(USAGE_FILE,usage)
 
-    e=discord.Embed(title="Translation")
-    e.add_field(name="Original",value=text[:1024],inline=False)
-    e.add_field(name="Translated",value=result[:1024],inline=False)
-    await inter.response.send_message(embed=e,ephemeral=True)
 
-class EN(app_commands.ContextMenu):
-    def __init__(self):
-        super().__init__(name="Translate to English",callback=self.cb)
-    async def cb(self,interaction,message):
-        interaction.target=message
-        await translate(interaction,"en")
+    if result is None:
 
-class ES(app_commands.ContextMenu):
-    def __init__(self):
-        super().__init__(name="Translate to Spanish",callback=self.cb)
-    async def cb(self,interaction,message):
-        interaction.target=message
-        await translate(interaction,"es")
+        translated = translator.translate(
+            text,
+            dest=target
+        )
+
+        result = translated.text
+
+
+        cache[key] = {
+            "text": result,
+            "time": now
+        }
+
+
+        save(
+            CACHE_FILE,
+            cache
+        )
+
+
+
+    usage["users"][uid] = user_count + 1
+    usage["global"] += 1
+
+    save(
+        USAGE_FILE,
+        usage
+    )
+
+
+
+    embed = discord.Embed(
+        title="🌎 Translation"
+    )
+
+
+    embed.add_field(
+        name="Original",
+        value=text[:1024],
+        inline=False
+    )
+
+
+    embed.add_field(
+        name="Translated",
+        value=result[:1024],
+        inline=False
+    )
+
+
+    await interaction.followup.send(
+        embed=embed,
+        ephemeral=True
+    )
+
+
+
+
+
+# ==========================
+# DISCORD RIGHT CLICK APPS
+# ==========================
+
+
+@app_commands.context_menu(
+    name="Translate to English"
+)
+async def translate_english(
+    interaction: discord.Interaction,
+    message: discord.Message
+):
+
+    await translate_message(
+        interaction,
+        message,
+        "en"
+    )
+
+
+
+@app_commands.context_menu(
+    name="Translate to Spanish"
+)
+async def translate_spanish(
+    interaction: discord.Interaction,
+    message: discord.Message
+):
+
+    await translate_message(
+        interaction,
+        message,
+        "es"
+    )
+
+
+
 
 @bot.event
 async def on_ready():
-    try:
-        bot.tree.add_command(EN())
-        bot.tree.add_command(ES())
-    except:
-        pass
+
+    bot.tree.add_command(
+        translate_english
+    )
+
+    bot.tree.add_command(
+        translate_spanish
+    )
+
+
     await bot.tree.sync()
-    print(bot.user)
+
+
+    print(
+        f"Logged in as {bot.user}"
+    )
+
 
 bot.run(TOKEN)
-
-
-
-
-
-
-
-
-
-
 
 
 
