@@ -484,7 +484,7 @@ async def translate_message(
     text = message.content.strip()
 
 # Apply Spanish gaming slang fixes
-text = apply_slang_fixes(text))
+text = apply_slang_fixes(text)
 
 
 
