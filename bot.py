@@ -12,7 +12,32 @@ from discord import app_commands
 from discord.ext import commands
 from deep_translator import GoogleTranslator
 
+# =========================
+# SPANISH GAMING SLANG
+# =========================
 
+SLANG_PHRASES = {
+    "bingo mano": "bingo bro",
+    "gracias mano": "gracias bro",
+    "hola mano": "hola bro",
+    "que pasa mano": "que pasa bro",
+    "qué pasa mano": "qué pasa bro",
+    "dale mano": "dale bro",
+    "vamos mano": "vamos bro",
+}
+
+
+def apply_slang_fixes(text):
+
+    lower = text.lower()
+
+    for old, new in SLANG_PHRASES.items():
+
+        if old in lower:
+
+            text = text.replace(old, new)
+
+    return text
 # =========================
 # API KEYS
 # =========================
@@ -458,6 +483,9 @@ async def translate_message(
 
 
     text = message.content.strip()
+
+# Apply Spanish gaming slang fixes
+text = apply_slang_fixes(text))
 
 
 
