@@ -1280,51 +1280,32 @@ async def translatorstatus(ctx):
 @app_commands.context_menu(
     name="Translate to English"
 )
-
 async def translate_to_english(
-
-    interaction,
-
-    message
-
+    interaction: discord.Interaction,
+    message: discord.Message
 ):
 
     await translate_message(
-
         interaction,
-
         message,
-
         "en"
-
     )
-
-
 
 
 
 @app_commands.context_menu(
     name="Translate to Spanish"
 )
-
 async def translate_to_spanish(
-
-    interaction,
-
-    message
-
+    interaction: discord.Interaction,
+    message: discord.Message
 ):
 
     await translate_message(
-
         interaction,
-
         message,
-
         "es"
-
     )
-
 
 
 
