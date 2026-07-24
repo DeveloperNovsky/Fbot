@@ -146,7 +146,18 @@ translator_mode = load(
         "mode": "deepl"
     }
 )
+# Validate translator mode
 
+if translator_mode.get("mode") not in ["deepl", "google"]:
+
+    translator_mode = {
+        "mode": "deepl"
+    }
+
+    save(
+        TRANSLATOR_MODE_FILE,
+        translator_mode
+    )
 
 
 # =========================
