@@ -3,6 +3,7 @@ import json
 import time
 import uuid
 import requests
+
 from collections import defaultdict
 
 import discord
@@ -11,6 +12,7 @@ import deepl
 from discord import app_commands
 from discord.ext import commands
 from deep_translator import GoogleTranslator
+
 
 # =========================
 # SPANISH GAMING SLANG
@@ -36,7 +38,20 @@ def apply_slang_fixes(text):
             new
         )
 
+        text = text.replace(
+            old.title(),
+            new
+        )
+
+        text = text.replace(
+            old.upper(),
+            new
+        )
+
     return text
+
+
+
 # =========================
 # API KEYS
 # =========================
@@ -48,6 +63,7 @@ DEEPL_API_KEY = os.getenv("DEEPL_API_KEY")
 AZURE_TRANSLATOR_KEY = os.getenv("AZURE_TRANSLATOR_KEY")
 
 AZURE_TRANSLATOR_REGION = os.getenv("AZURE_TRANSLATOR_REGION")
+
 
 
 # =========================
@@ -68,12 +84,10 @@ CACHE_HOURS = 24
 MAX_MESSAGE_LENGTH = 1000
 
 
-# DeepL free monthly character safety limit
+
+# Free monthly safety limits
 
 DEEPL_CHARACTER_LIMIT = 900000
-
-
-# Azure free monthly character safety limit
 
 AZURE_CHARACTER_LIMIT = 1500000
 
@@ -85,7 +99,11 @@ AZURE_CHARACTER_LIMIT = 1500000
 
 DATA = "/data" if os.path.exists("/data") else "."
 
-os.makedirs(DATA, exist_ok=True)
+os.makedirs(
+    DATA,
+    exist_ok=True
+)
+
 
 
 CACHE_FILE = f"{DATA}/cache.json"
@@ -170,12 +188,19 @@ if usage.get("date") != today:
         usage
     )
 
+
+
 # =========================
-# DEEPL USAGE TRACKING
+# MONTHLY TRACKING
 # =========================
 
 current_month = time.strftime("%Y-%m")
 
+
+
+# =========================
+# DEEPL USAGE
+# =========================
 
 deepl_usage = load(
     DEEPL_USAGE_FILE,
@@ -186,8 +211,6 @@ deepl_usage = load(
 )
 
 
-
-# Reset DeepL counter monthly
 
 if deepl_usage.get("month") != current_month:
 
@@ -206,10 +229,8 @@ if deepl_usage.get("month") != current_month:
 
 
 
-
-
 # =========================
-# AZURE USAGE TRACKING
+# AZURE USAGE
 # =========================
 
 azure_usage = load(
@@ -222,10 +243,7 @@ azure_usage = load(
 
 
 
-# Reset Azure counter monthly
-
 if azure_usage.get("month") != current_month:
-
 
     azure_usage = {
 
@@ -235,7 +253,6 @@ if azure_usage.get("month") != current_month:
 
     }
 
-
     save(
         AZURE_USAGE_FILE,
         azure_usage
@@ -243,13 +260,11 @@ if azure_usage.get("month") != current_month:
 
 
 
-
-
 # =========================
 # TRANSLATOR MODE
 # =========================
 #
-# auto  = DeepL → Azure → Google
+# auto = DeepL -> Azure -> Google
 # deepl = DeepL only
 # azure = Azure only
 # google = Google only
@@ -267,11 +282,8 @@ translator_mode = load(
 if translator_mode.get("mode") not in [
 
     "auto",
-
     "deepl",
-
     "azure",
-
     "google"
 
 ]:
@@ -282,15 +294,10 @@ if translator_mode.get("mode") not in [
 
     }
 
-
     save(
         TRANSLATOR_MODE_FILE,
         translator_mode
     )
-
-
-
-
 
 # =========================
 # DEEPL CONNECTION
@@ -299,19 +306,13 @@ if translator_mode.get("mode") not in [
 deepl_client = None
 
 
-
 if DEEPL_API_KEY:
 
-
     deepl_client = deepl.Translator(
-
         DEEPL_API_KEY
-
     )
 
-
 else:
-
 
     print(
         "WARNING: No DeepL API key found."
@@ -319,27 +320,20 @@ else:
 
 
 
-
-
 # =========================
-# AZURE CONNECTION
+# AZURE TRANSLATOR
 # =========================
 
 def azure_translate(text, target):
-
 
     if not AZURE_TRANSLATOR_KEY:
 
         return None
 
 
-
     endpoint = (
-
         "https://api.cognitive.microsofttranslator.com/translate"
-
     )
-
 
 
     params = {
@@ -351,43 +345,30 @@ def azure_translate(text, target):
     }
 
 
-
     headers = {
 
-
         "Ocp-Apim-Subscription-Key":
-
             AZURE_TRANSLATOR_KEY,
 
-
         "Ocp-Apim-Subscription-Region":
-
             AZURE_TRANSLATOR_REGION,
 
-
         "Content-Type":
-
             "application/json",
 
-
         "X-ClientTraceId":
-
             str(uuid.uuid4())
 
     }
 
 
-
     body = [
 
         {
-
             "text": text
-
         }
 
     ]
-
 
 
     response = requests.post(
@@ -403,9 +384,7 @@ def azure_translate(text, target):
     )
 
 
-
     if response.status_code != 200:
-
 
         print(
             response.text
@@ -414,12 +393,14 @@ def azure_translate(text, target):
         return None
 
 
-
     data = response.json()
 
 
-
     return data[0]["translations"][0]["text"]
+
+
+
+
 
 # =========================
 # DISCORD SETUP
@@ -453,7 +434,6 @@ minute_usage = defaultdict(list)
 # TRANSLATION FUNCTION
 # =========================
 
-
 async def translate_message(
 
     interaction: discord.Interaction,
@@ -467,7 +447,6 @@ async def translate_message(
 
     if message.author.bot:
 
-
         await interaction.response.send_message(
 
             "Bots cannot be translated.",
@@ -480,16 +459,17 @@ async def translate_message(
 
 
 
-
     text = message.content.strip()
 
-# Apply Spanish gaming slang fixes
-text = apply_slang_fixes(text)
+
+
+    # Apply gaming slang fixes
+
+    text = apply_slang_fixes(text)
 
 
 
     if not text:
-
 
         await interaction.response.send_message(
 
@@ -503,9 +483,7 @@ text = apply_slang_fixes(text)
 
 
 
-
     if len(text) > MAX_MESSAGE_LENGTH:
-
 
         await interaction.response.send_message(
 
@@ -526,15 +504,13 @@ text = apply_slang_fixes(text)
 
 
 
-
-
-    # Cooldown
+    # =========================
+    # COOLDOWN
+    # =========================
 
     if user_id in cooldowns:
 
-
         if now - cooldowns[user_id] < USER_COOLDOWN:
-
 
             await interaction.response.send_message(
 
@@ -553,8 +529,9 @@ text = apply_slang_fixes(text)
 
 
 
-
-    # Minute limit
+    # =========================
+    # MINUTE LIMIT
+    # =========================
 
     minute_usage[user_id] = [
 
@@ -565,9 +542,7 @@ text = apply_slang_fixes(text)
     ]
 
 
-
     if len(minute_usage[user_id]) >= USER_MINUTE_LIMIT:
-
 
         await interaction.response.send_message(
 
@@ -586,8 +561,9 @@ text = apply_slang_fixes(text)
 
 
 
-
-    # Daily limits
+    # =========================
+    # DAILY LIMITS
+    # =========================
 
     current_user = usage["users"].get(
 
@@ -600,7 +576,6 @@ text = apply_slang_fixes(text)
 
 
     if current_user >= USER_DAILY_LIMIT:
-
 
         await interaction.response.send_message(
 
@@ -617,7 +592,6 @@ text = apply_slang_fixes(text)
 
     if usage["global"] >= GLOBAL_DAILY_LIMIT:
 
-
         await interaction.response.send_message(
 
             "The bot reached its global daily limit.",
@@ -627,7 +601,6 @@ text = apply_slang_fixes(text)
         )
 
         return
-
 
 
 
@@ -643,11 +616,14 @@ text = apply_slang_fixes(text)
 
 
     # =========================
-    # CACHE CHECK
+    # CACHE
     # =========================
 
+    cache_key = (
 
-    cache_key = f"{translator_mode['mode']}:{target}:{text}"
+        f"{translator_mode['mode']}:{target}:{text}"
+
+    )
 
 
     result = None
@@ -659,8 +635,8 @@ text = apply_slang_fixes(text)
 
         if now - cache[cache_key]["time"] < CACHE_HOURS * 3600:
 
-
             result = cache[cache_key]["text"]
+
 
 
 
@@ -670,9 +646,7 @@ text = apply_slang_fixes(text)
     # TRANSLATION ENGINE
     # =========================
 
-
     if result is None:
-
 
 
         mode = translator_mode["mode"]
@@ -680,12 +654,17 @@ text = apply_slang_fixes(text)
 
 
 
-
-        # ---------------------
+        # -------------------------
         # DeepL
-        # ---------------------
+        # -------------------------
 
-        if mode in ["auto", "deepl"]:
+        if mode in [
+
+            "auto",
+
+            "deepl"
+
+        ]:
 
 
             if (
@@ -713,7 +692,6 @@ text = apply_slang_fixes(text)
                     )
 
 
-
                     translated = deepl_client.translate_text(
 
                         text,
@@ -721,7 +699,6 @@ text = apply_slang_fixes(text)
                         target_lang=target_language
 
                     )
-
 
 
                     result = translated.text
@@ -741,23 +718,18 @@ text = apply_slang_fixes(text)
                     )
 
 
-
                     print(
-
                         "Used DeepL"
-
                     )
-
 
 
                 except Exception as e:
 
 
                     print(
-
                         f"DeepL error: {e}"
-
                     )
+
 
                     result = None
 
@@ -765,11 +737,17 @@ text = apply_slang_fixes(text)
 
 
 
-        # ---------------------
+        # -------------------------
         # Azure
-        # ---------------------
+        # -------------------------
 
-        if result is None and mode in ["auto", "azure"]:
+        if result is None and mode in [
+
+            "auto",
+
+            "azure"
+
+        ]:
 
 
             if (
@@ -793,7 +771,6 @@ text = apply_slang_fixes(text)
                     )
 
 
-
                     if result:
 
 
@@ -810,23 +787,18 @@ text = apply_slang_fixes(text)
                         )
 
 
-
                         print(
-
-                            "Used Azure Translator"
-
+                            "Used Azure"
                         )
-
 
 
                 except Exception as e:
 
 
                     print(
-
                         f"Azure error: {e}"
-
                     )
+
 
                     result = None
 
@@ -834,12 +806,17 @@ text = apply_slang_fixes(text)
 
 
 
-
-        # ---------------------
+        # -------------------------
         # Google
-        # ---------------------
+        # -------------------------
 
-        if result is None and mode in ["auto", "google"]:
+        if result is None and mode in [
+
+            "auto",
+
+            "google"
+
+        ]:
 
 
             try:
@@ -854,27 +831,20 @@ text = apply_slang_fixes(text)
                 ).translate(text)
 
 
-
                 print(
-
-                    "Used Google Translate"
-
+                    "Used Google"
                 )
-
 
 
             except Exception as e:
 
 
                 print(
-
                     f"Google error: {e}"
-
                 )
 
+
                 result = "Translation failed."
-
-
 
 
 
@@ -884,15 +854,11 @@ text = apply_slang_fixes(text)
 
         cache[cache_key] = {
 
-
             "text": result,
-
 
             "time": now
 
-
         }
-
 
 
         save(
@@ -903,19 +869,13 @@ text = apply_slang_fixes(text)
 
         )
 
-
-
-
-
-    # =========================
-    # USAGE TRACKING
-    # =========================
-
+# =========================
+# FINISH TRANSLATION RESPONSE
+# =========================
 
     usage["users"][user_id] = current_user + 1
 
     usage["global"] += 1
-
 
 
     save(
@@ -928,19 +888,15 @@ text = apply_slang_fixes(text)
 
 
 
-
-
     # =========================
     # RESPONSE
     # =========================
-
 
     embed = discord.Embed(
 
         title="🌎 Translation"
 
     )
-
 
 
     embed.add_field(
@@ -954,7 +910,6 @@ text = apply_slang_fixes(text)
     )
 
 
-
     embed.add_field(
 
         name="Translated",
@@ -966,7 +921,6 @@ text = apply_slang_fixes(text)
     )
 
 
-
     await interaction.followup.send(
 
         embed=embed,
@@ -974,6 +928,10 @@ text = apply_slang_fixes(text)
         ephemeral=True
 
     )
+
+
+
+
 
 # =========================
 # TRANSLATOR SWITCH COMMAND
@@ -1007,7 +965,6 @@ async def translator(ctx, mode=None):
 
 
 
-
     translator_mode["mode"] = mode
 
 
@@ -1032,6 +989,7 @@ async def translator(ctx, mode=None):
 
 
 
+
 # =========================
 # DEEPL STATUS
 # =========================
@@ -1040,35 +998,61 @@ async def translator(ctx, mode=None):
 @commands.has_permissions(administrator=True)
 async def deeplstatus(ctx):
 
+
     used = deepl_usage["characters_used"]
+
 
     remaining = DEEPL_CHARACTER_LIMIT - used
 
+
+
     embed = discord.Embed(
+
         title="🔤 DeepL Usage"
+
     )
 
+
+
     embed.add_field(
+
         name="Used",
+
         value=f"{used:,} / {DEEPL_CHARACTER_LIMIT:,}",
+
         inline=False
+
     )
 
+
     embed.add_field(
+
         name="Remaining",
+
         value=f"{remaining:,} characters",
+
         inline=False
+
     )
 
+
     embed.add_field(
+
         name="Current Mode",
+
         value=translator_mode["mode"].upper(),
+
         inline=False
+
     )
+
 
     await ctx.send(
+
         embed=embed
+
     )
+
 
 
 
@@ -1121,9 +1105,9 @@ async def azurestatus(ctx):
 
     embed.add_field(
 
-        name="Month",
+        name="Current Mode",
 
-        value=azure_usage["month"],
+        value=translator_mode["mode"].upper(),
 
         inline=False
 
@@ -1135,6 +1119,7 @@ async def azurestatus(ctx):
         embed=embed
 
     )
+
 
 
 
@@ -1156,6 +1141,7 @@ async def translatorstatus(ctx):
     )
 
 
+
     embed.add_field(
 
         name="Current Mode",
@@ -1167,26 +1153,41 @@ async def translatorstatus(ctx):
     )
 
 
+
     embed.add_field(
 
         name="DeepL",
 
-        value=f"{deepl_usage['characters_used']:,}/{DEEPL_CHARACTER_LIMIT:,}",
+        value=(
+
+            f"{deepl_usage['characters_used']:,}"
+
+            f"/{DEEPL_CHARACTER_LIMIT:,}"
+
+        ),
 
         inline=False
 
     )
+
 
 
     embed.add_field(
 
         name="Azure",
 
-        value=f"{azure_usage['characters_used']:,}/{AZURE_CHARACTER_LIMIT:,}",
+        value=(
+
+            f"{azure_usage['characters_used']:,}"
+
+            f"/{AZURE_CHARACTER_LIMIT:,}"
+
+        ),
 
         inline=False
 
     )
+
 
 
     embed.add_field(
@@ -1200,15 +1201,12 @@ async def translatorstatus(ctx):
     )
 
 
+
     await ctx.send(
 
         embed=embed
 
     )
-
-
-
-
 
 # =========================
 # DISCORD CONTEXT MENUS
@@ -1273,6 +1271,7 @@ async def translate_to_spanish(
 
 
 
+
 # =========================
 # BOT STARTUP
 # =========================
@@ -1320,7 +1319,7 @@ async def on_ready():
 
     print(
 
-        "DeepL:",
+        "DeepL Enabled:",
 
         deepl_client is not None
 
@@ -1329,7 +1328,7 @@ async def on_ready():
 
     print(
 
-        "Azure:",
+        "Azure Enabled:",
 
         AZURE_TRANSLATOR_KEY is not None
 
@@ -1337,6 +1336,8 @@ async def on_ready():
 
 
 
-
+# =========================
+# START BOT
+# =========================
 
 bot.run(TOKEN)
