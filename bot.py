@@ -1013,54 +1013,34 @@ async def translator(ctx, mode=None):
 @commands.has_permissions(administrator=True)
 async def deeplstatus(ctx):
 
-
     used = deepl_usage["characters_used"]
-
 
     remaining = DEEPL_CHARACTER_LIMIT - used
 
-
-
     embed = discord.Embed(
-
         title="🔤 DeepL Usage"
-
     )
 
-
     embed.add_field(
-
         name="Used",
-
         value=f"{used:,} / {DEEPL_CHARACTER_LIMIT:,}",
-
         inline=False
-
     )
-
 
     embed.add_field(
-
         name="Remaining",
-
         value=f"{remaining:,} characters",
-
         inline=False
-
     )
 
-
-   embed.add_field(
-    name="Current Mode",
-    value=translator_mode["mode"].upper(),
-    inline=False
-)
-
+    embed.add_field(
+        name="Current Mode",
+        value=translator_mode["mode"].upper(),
+        inline=False
+    )
 
     await ctx.send(
-
         embed=embed
-
     )
 
 
