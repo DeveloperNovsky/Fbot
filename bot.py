@@ -336,7 +336,7 @@ async def translate_message(
     # CACHE CHECK
     # =========================
 
-    cache_key = f"{target}:{text}"
+    cache_key = f"{translator_mode['mode']}:{target}:{text}"
 
     result = None
 
