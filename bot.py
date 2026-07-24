@@ -29,13 +29,12 @@ SLANG_PHRASES = {
 
 def apply_slang_fixes(text):
 
-    lower = text.lower()
-
     for old, new in SLANG_PHRASES.items():
 
-        if old in lower:
-
-            text = text.replace(old, new)
+        text = text.replace(
+            old,
+            new
+        )
 
     return text
 # =========================
