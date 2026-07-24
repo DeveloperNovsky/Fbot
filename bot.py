@@ -1050,15 +1050,11 @@ async def deeplstatus(ctx):
     )
 
 
-    embed.add_field(
-
-        name="Month",
-
-        value=deepl_usage["month"],
-
-        inline=False
-
-    )
+   embed.add_field(
+    name="Current Mode",
+    value=translator_mode["mode"].upper(),
+    inline=False
+)
 
 
     await ctx.send(
