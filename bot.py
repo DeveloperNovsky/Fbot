@@ -991,68 +991,62 @@ async def translator(ctx, mode=None):
 
 
 # =========================
-# DEEPL STATUS
+# TRANSLATOR STATUS
 # =========================
 
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def deeplstatus(ctx):
 
+    deepl_used = deepl_usage["characters_used"]
+    deepl_remaining = DEEPL_CHARACTER_LIMIT - deepl_used
 
-    used = deepl_usage["characters_used"]
-
-
-    remaining = DEEPL_CHARACTER_LIMIT - used
-
+    azure_used = azure_usage["characters_used"]
+    azure_remaining = AZURE_CHARACTER_LIMIT - azure_used
 
 
     embed = discord.Embed(
-
-        title="🔤 DeepL Usage"
-
-    )
-
-
-
-    embed.add_field(
-
-        name="Used",
-
-        value=f"{used:,} / {DEEPL_CHARACTER_LIMIT:,}",
-
-        inline=False
-
+        title="🔤 Translator Usage"
     )
 
 
     embed.add_field(
-
-        name="Remaining",
-
-        value=f"{remaining:,} characters",
-
-        inline=False
-
-    )
-
-
-    embed.add_field(
-
         name="Current Mode",
-
         value=translator_mode["mode"].upper(),
-
         inline=False
+    )
 
+
+    embed.add_field(
+        name="DeepL",
+        value=(
+            f"Used: {deepl_used:,} / {DEEPL_CHARACTER_LIMIT:,}\n"
+            f"Remaining: {deepl_remaining:,}"
+        ),
+        inline=False
+    )
+
+
+    embed.add_field(
+        name="Azure",
+        value=(
+            f"Used: {azure_used:,} / {AZURE_CHARACTER_LIMIT:,}\n"
+            f"Remaining: {azure_remaining:,}"
+        ),
+        inline=False
+    )
+
+
+    embed.add_field(
+        name="Google",
+        value="Available fallback",
+        inline=False
     )
 
 
     await ctx.send(
-
         embed=embed
-
     )
-
 
 
 
