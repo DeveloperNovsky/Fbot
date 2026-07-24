@@ -1,6 +1,8 @@
 import os
 import json
 import time
+import uuid
+import requests
 from collections import defaultdict
 
 import discord
@@ -11,8 +13,17 @@ from discord.ext import commands
 from deep_translator import GoogleTranslator
 
 
+# =========================
+# API KEYS
+# =========================
+
 TOKEN = os.getenv("DISCORD_TOKEN")
+
 DEEPL_API_KEY = os.getenv("DEEPL_API_KEY")
+
+AZURE_TRANSLATOR_KEY = os.getenv("AZURE_TRANSLATOR_KEY")
+
+AZURE_TRANSLATOR_REGION = os.getenv("AZURE_TRANSLATOR_REGION")
 
 
 # =========================
@@ -20,16 +31,27 @@ DEEPL_API_KEY = os.getenv("DEEPL_API_KEY")
 # =========================
 
 USER_COOLDOWN = 8
+
 USER_MINUTE_LIMIT = 10
+
 USER_DAILY_LIMIT = 100
+
 GLOBAL_DAILY_LIMIT = 1500
 
+
 CACHE_HOURS = 24
+
 MAX_MESSAGE_LENGTH = 1000
 
 
-# DeepL character safety limit
+# DeepL free monthly character safety limit
+
 DEEPL_CHARACTER_LIMIT = 900000
+
+
+# Azure free monthly character safety limit
+
+AZURE_CHARACTER_LIMIT = 1500000
 
 
 
@@ -43,8 +65,13 @@ os.makedirs(DATA, exist_ok=True)
 
 
 CACHE_FILE = f"{DATA}/cache.json"
+
 USAGE_FILE = f"{DATA}/usage.json"
+
 DEEPL_USAGE_FILE = f"{DATA}/deepl_usage.json"
+
+AZURE_USAGE_FILE = f"{DATA}/azure_usage.json"
+
 TRANSLATOR_MODE_FILE = f"{DATA}/translator_mode.json"
 
 
@@ -54,6 +81,7 @@ def load(file, default):
     if os.path.exists(file):
 
         with open(file, "r") as f:
+
             return json.load(f)
 
     return default
@@ -118,46 +146,126 @@ if usage.get("date") != today:
         usage
     )
 
-
-
 # =========================
 # DEEPL USAGE TRACKING
 # =========================
 
+current_month = time.strftime("%Y-%m")
+
+
 deepl_usage = load(
     DEEPL_USAGE_FILE,
     {
-        "characters_used": 0
+        "characters_used": 0,
+        "month": current_month
     }
 )
+
+
+
+# Reset DeepL counter monthly
+
+if deepl_usage.get("month") != current_month:
+
+    deepl_usage = {
+
+        "characters_used": 0,
+
+        "month": current_month
+
+    }
+
+    save(
+        DEEPL_USAGE_FILE,
+        deepl_usage
+    )
+
+
+
+
+
+# =========================
+# AZURE USAGE TRACKING
+# =========================
+
+azure_usage = load(
+    AZURE_USAGE_FILE,
+    {
+        "characters_used": 0,
+        "month": current_month
+    }
+)
+
+
+
+# Reset Azure counter monthly
+
+if azure_usage.get("month") != current_month:
+
+
+    azure_usage = {
+
+        "characters_used": 0,
+
+        "month": current_month
+
+    }
+
+
+    save(
+        AZURE_USAGE_FILE,
+        azure_usage
+    )
+
+
 
 
 
 # =========================
 # TRANSLATOR MODE
 # =========================
-# deepl = DeepL first
-# google = Force Google Translate
+#
+# auto  = DeepL → Azure → Google
+# deepl = DeepL only
+# azure = Azure only
+# google = Google only
 
 
 translator_mode = load(
     TRANSLATOR_MODE_FILE,
     {
-        "mode": "deepl"
+        "mode": "auto"
     }
 )
-# Validate translator mode
 
-if translator_mode.get("mode") not in ["deepl", "google"]:
+
+
+if translator_mode.get("mode") not in [
+
+    "auto",
+
+    "deepl",
+
+    "azure",
+
+    "google"
+
+]:
 
     translator_mode = {
-        "mode": "deepl"
+
+        "mode": "auto"
+
     }
+
 
     save(
         TRANSLATOR_MODE_FILE,
         translator_mode
     )
+
+
+
 
 
 # =========================
@@ -167,19 +275,127 @@ if translator_mode.get("mode") not in ["deepl", "google"]:
 deepl_client = None
 
 
+
 if DEEPL_API_KEY:
 
+
     deepl_client = deepl.Translator(
+
         DEEPL_API_KEY
+
     )
+
 
 else:
 
+
     print(
-        "WARNING: No DeepL API key found. Using Google fallback."
+        "WARNING: No DeepL API key found."
     )
 
 
+
+
+
+# =========================
+# AZURE CONNECTION
+# =========================
+
+def azure_translate(text, target):
+
+
+    if not AZURE_TRANSLATOR_KEY:
+
+        return None
+
+
+
+    endpoint = (
+
+        "https://api.cognitive.microsofttranslator.com/translate"
+
+    )
+
+
+
+    params = {
+
+        "api-version": "3.0",
+
+        "to": target
+
+    }
+
+
+
+    headers = {
+
+
+        "Ocp-Apim-Subscription-Key":
+
+            AZURE_TRANSLATOR_KEY,
+
+
+        "Ocp-Apim-Subscription-Region":
+
+            AZURE_TRANSLATOR_REGION,
+
+
+        "Content-Type":
+
+            "application/json",
+
+
+        "X-ClientTraceId":
+
+            str(uuid.uuid4())
+
+    }
+
+
+
+    body = [
+
+        {
+
+            "text": text
+
+        }
+
+    ]
+
+
+
+    response = requests.post(
+
+        endpoint,
+
+        params=params,
+
+        headers=headers,
+
+        json=body
+
+    )
+
+
+
+    if response.status_code != 200:
+
+
+        print(
+            response.text
+        )
+
+        return None
+
+
+
+    data = response.json()
+
+
+
+    return data[0]["translations"][0]["text"]
 
 # =========================
 # DISCORD SETUP
@@ -192,8 +408,11 @@ intents.message_content = True
 
 
 bot = commands.Bot(
+
     command_prefix="!",
+
     intents=intents
+
 )
 
 
@@ -204,26 +423,37 @@ minute_usage = defaultdict(list)
 
 
 
+
+
 # =========================
 # TRANSLATION FUNCTION
 # =========================
 
 
 async def translate_message(
+
     interaction: discord.Interaction,
+
     message: discord.Message,
+
     target: str
+
 ):
 
 
     if message.author.bot:
 
+
         await interaction.response.send_message(
+
             "Bots cannot be translated.",
+
             ephemeral=True
+
         )
 
         return
+
 
 
 
@@ -233,31 +463,41 @@ async def translate_message(
 
     if not text:
 
+
         await interaction.response.send_message(
+
             "No text found.",
+
             ephemeral=True
+
         )
 
         return
+
 
 
 
     if len(text) > MAX_MESSAGE_LENGTH:
 
+
         await interaction.response.send_message(
+
             "Message is too long.",
+
             ephemeral=True
+
         )
 
         return
 
 
 
+
     now = time.time()
 
-    user_id = str(
-        interaction.user.id
-    )
+    user_id = str(interaction.user.id)
+
+
 
 
 
@@ -265,11 +505,16 @@ async def translate_message(
 
     if user_id in cooldowns:
 
+
         if now - cooldowns[user_id] < USER_COOLDOWN:
 
+
             await interaction.response.send_message(
+
                 "Please wait before translating again.",
+
                 ephemeral=True
+
             )
 
             return
@@ -277,6 +522,8 @@ async def translate_message(
 
 
     cooldowns[user_id] = now
+
+
 
 
 
@@ -296,8 +543,11 @@ async def translate_message(
 
 
         await interaction.response.send_message(
+
             "You reached the minute limit.",
+
             ephemeral=True
+
         )
 
         return
@@ -308,55 +558,84 @@ async def translate_message(
 
 
 
+
+
     # Daily limits
 
     current_user = usage["users"].get(
+
         user_id,
+
         0
+
     )
 
 
 
     if current_user >= USER_DAILY_LIMIT:
 
+
         await interaction.response.send_message(
+
             "You reached your daily translation limit.",
+
             ephemeral=True
+
         )
 
         return
+
 
 
 
     if usage["global"] >= GLOBAL_DAILY_LIMIT:
 
+
         await interaction.response.send_message(
-            "The bot has reached its daily global limit.",
+
+            "The bot reached its global daily limit.",
+
             ephemeral=True
+
         )
 
         return
 
 
 
+
+
     await interaction.response.defer(
+
         ephemeral=True
+
     )
+
+
+
+
 
     # =========================
     # CACHE CHECK
     # =========================
 
+
     cache_key = f"{translator_mode['mode']}:{target}:{text}"
+
 
     result = None
 
 
+
     if cache_key in cache:
+
 
         if now - cache[cache_key]["time"] < CACHE_HOURS * 3600:
 
+
             result = cache[cache_key]["text"]
+
+
 
 
 
@@ -364,75 +643,195 @@ async def translate_message(
     # TRANSLATION ENGINE
     # =========================
 
+
     if result is None:
 
 
-        # Check if DeepL is allowed
 
-        deepl_available = (
+        mode = translator_mode["mode"]
 
-            translator_mode["mode"] == "deepl"
 
-            and deepl_client is not None
 
-            and (
 
-                deepl_usage["characters_used"] + len(text)
+
+        # ---------------------
+        # DeepL
+        # ---------------------
+
+        if mode in ["auto", "deepl"]:
+
+
+            if (
+
+                deepl_client
+
+                and deepl_usage["characters_used"] + len(text)
 
                 <= DEEPL_CHARACTER_LIMIT
 
-            )
-
-        )
+            ):
 
 
+                try:
 
-        if deepl_available:
+
+                    target_language = (
+
+                        "EN-US"
+
+                        if target == "en"
+
+                        else "ES"
+
+                    )
+
+
+
+                    translated = deepl_client.translate_text(
+
+                        text,
+
+                        target_lang=target_language
+
+                    )
+
+
+
+                    result = translated.text
+
+
+
+                    deepl_usage["characters_used"] += len(text)
+
+
+
+                    save(
+
+                        DEEPL_USAGE_FILE,
+
+                        deepl_usage
+
+                    )
+
+
+
+                    print(
+
+                        "Used DeepL"
+
+                    )
+
+
+
+                except Exception as e:
+
+
+                    print(
+
+                        f"DeepL error: {e}"
+
+                    )
+
+                    result = None
+
+
+
+
+
+        # ---------------------
+        # Azure
+        # ---------------------
+
+        if result is None and mode in ["auto", "azure"]:
+
+
+            if (
+
+                azure_usage["characters_used"] + len(text)
+
+                <= AZURE_CHARACTER_LIMIT
+
+            ):
+
+
+                try:
+
+
+                    result = azure_translate(
+
+                        text,
+
+                        target
+
+                    )
+
+
+
+                    if result:
+
+
+                        azure_usage["characters_used"] += len(text)
+
+
+
+                        save(
+
+                            AZURE_USAGE_FILE,
+
+                            azure_usage
+
+                        )
+
+
+
+                        print(
+
+                            "Used Azure Translator"
+
+                        )
+
+
+
+                except Exception as e:
+
+
+                    print(
+
+                        f"Azure error: {e}"
+
+                    )
+
+                    result = None
+
+
+
+
+
+
+        # ---------------------
+        # Google
+        # ---------------------
+
+        if result is None and mode in ["auto", "google"]:
 
 
             try:
 
 
-                target_language = (
+                result = GoogleTranslator(
 
-                    "EN-US"
+                    source="auto",
 
-                    if target == "en"
+                    target=target
 
-                    else "ES"
-
-                )
-
-
-                translated = deepl_client.translate_text(
-
-                    text,
-
-                    target_lang=target_language
-
-                )
-
-
-                result = translated.text
-
-
-
-                deepl_usage["characters_used"] += len(text)
-
-
-
-                save(
-
-                    DEEPL_USAGE_FILE,
-
-                    deepl_usage
-
-                )
+                ).translate(text)
 
 
 
                 print(
-                    "Used DeepL"
+
+                    "Used Google Translate"
+
                 )
 
 
@@ -441,32 +840,15 @@ async def translate_message(
 
 
                 print(
-                    f"DeepL error: {e}"
+
+                    f"Google error: {e}"
+
                 )
 
-                result = None
+                result = "Translation failed."
 
 
 
-
-        # Google fallback
-
-        if result is None:
-
-
-            result = GoogleTranslator(
-
-                source="auto",
-
-                target=target
-
-            ).translate(text)
-
-
-
-            print(
-                "Used Google Translate"
-            )
 
 
 
@@ -485,6 +867,7 @@ async def translate_message(
         }
 
 
+
         save(
 
             CACHE_FILE,
@@ -495,17 +878,14 @@ async def translate_message(
 
 
 
+
+
     # =========================
     # USAGE TRACKING
     # =========================
 
 
-    usage["users"][user_id] = (
-
-        current_user + 1
-
-    )
-
+    usage["users"][user_id] = current_user + 1
 
     usage["global"] += 1
 
@@ -518,6 +898,8 @@ async def translate_message(
         usage
 
     )
+
+
 
 
 
@@ -566,29 +948,36 @@ async def translate_message(
 
     )
 
-
-
-
 # =========================
 # TRANSLATOR SWITCH COMMAND
 # =========================
-
 
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def translator(ctx, mode=None):
 
 
-    if mode not in ["deepl", "google"]:
+    if mode not in [
+
+        "auto",
+
+        "deepl",
+
+        "azure",
+
+        "google"
+
+    ]:
 
 
         await ctx.send(
 
-            "Usage: `!translator deepl` or `!translator google`"
+            "Usage: `!translator auto`, `!translator deepl`, `!translator azure`, or `!translator google`"
 
         )
 
         return
+
 
 
 
@@ -617,9 +1006,8 @@ async def translator(ctx, mode=None):
 
 
 # =========================
-# DEEPL STATUS COMMAND
+# DEEPL STATUS
 # =========================
-
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -629,11 +1017,7 @@ async def deeplstatus(ctx):
     used = deepl_usage["characters_used"]
 
 
-    remaining = (
-
-        DEEPL_CHARACTER_LIMIT - used
-
-    )
+    remaining = DEEPL_CHARACTER_LIMIT - used
 
 
 
@@ -642,7 +1026,6 @@ async def deeplstatus(ctx):
         title="🔤 DeepL Usage"
 
     )
-
 
 
     embed.add_field(
@@ -656,6 +1039,71 @@ async def deeplstatus(ctx):
     )
 
 
+    embed.add_field(
+
+        name="Remaining",
+
+        value=f"{remaining:,} characters",
+
+        inline=False
+
+    )
+
+
+    embed.add_field(
+
+        name="Month",
+
+        value=deepl_usage["month"],
+
+        inline=False
+
+    )
+
+
+    await ctx.send(
+
+        embed=embed
+
+    )
+
+
+
+
+
+# =========================
+# AZURE STATUS
+# =========================
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def azurestatus(ctx):
+
+
+    used = azure_usage["characters_used"]
+
+
+    remaining = AZURE_CHARACTER_LIMIT - used
+
+
+
+    embed = discord.Embed(
+
+        title="☁️ Azure Translator Usage"
+
+    )
+
+
+    embed.add_field(
+
+        name="Used",
+
+        value=f"{used:,} / {AZURE_CHARACTER_LIMIT:,}",
+
+        inline=False
+
+    )
+
 
     embed.add_field(
 
@@ -668,6 +1116,42 @@ async def deeplstatus(ctx):
     )
 
 
+    embed.add_field(
+
+        name="Month",
+
+        value=azure_usage["month"],
+
+        inline=False
+
+    )
+
+
+    await ctx.send(
+
+        embed=embed
+
+    )
+
+
+
+
+
+# =========================
+# FULL TRANSLATOR STATUS
+# =========================
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def translatorstatus(ctx):
+
+
+    embed = discord.Embed(
+
+        title="🌎 Translator Status"
+
+    )
+
 
     embed.add_field(
 
@@ -679,6 +1163,38 @@ async def deeplstatus(ctx):
 
     )
 
+
+    embed.add_field(
+
+        name="DeepL",
+
+        value=f"{deepl_usage['characters_used']:,}/{DEEPL_CHARACTER_LIMIT:,}",
+
+        inline=False
+
+    )
+
+
+    embed.add_field(
+
+        name="Azure",
+
+        value=f"{azure_usage['characters_used']:,}/{AZURE_CHARACTER_LIMIT:,}",
+
+        inline=False
+
+    )
+
+
+    embed.add_field(
+
+        name="Google",
+
+        value="Available fallback",
+
+        inline=False
+
+    )
 
 
     await ctx.send(
@@ -755,7 +1271,7 @@ async def translate_to_spanish(
 
 
 # =========================
-# START BOT
+# BOT STARTUP
 # =========================
 
 
@@ -797,6 +1313,26 @@ async def on_ready():
         f"Translator mode: {translator_mode['mode']}"
 
     )
+
+
+    print(
+
+        "DeepL:",
+
+        deepl_client is not None
+
+    )
+
+
+    print(
+
+        "Azure:",
+
+        AZURE_TRANSLATOR_KEY is not None
+
+    )
+
+
 
 
 
