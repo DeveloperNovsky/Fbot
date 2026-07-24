@@ -28,8 +28,9 @@ CACHE_HOURS = 24
 MAX_MESSAGE_LENGTH = 1000
 
 
-# DeepL safety limit
+# DeepL character safety limit
 DEEPL_CHARACTER_LIMIT = 900000
+
 
 
 # =========================
@@ -44,6 +45,8 @@ os.makedirs(DATA, exist_ok=True)
 CACHE_FILE = f"{DATA}/cache.json"
 USAGE_FILE = f"{DATA}/usage.json"
 DEEPL_USAGE_FILE = f"{DATA}/deepl_usage.json"
+TRANSLATOR_MODE_FILE = f"{DATA}/translator_mode.json"
+
 
 
 def load(file, default):
@@ -118,7 +121,7 @@ if usage.get("date") != today:
 
 
 # =========================
-# DEEPL USAGE
+# DEEPL USAGE TRACKING
 # =========================
 
 deepl_usage = load(
@@ -130,7 +133,25 @@ deepl_usage = load(
 
 
 
-# DeepL client
+# =========================
+# TRANSLATOR MODE
+# =========================
+# deepl = DeepL first
+# google = Force Google Translate
+
+
+translator_mode = load(
+    TRANSLATOR_MODE_FILE,
+    {
+        "mode": "deepl"
+    }
+)
+
+
+
+# =========================
+# DEEPL CONNECTION
+# =========================
 
 deepl_client = None
 
@@ -183,6 +204,7 @@ async def translate_message(
     target: str
 ):
 
+
     if message.author.bot:
 
         await interaction.response.send_message(
@@ -228,10 +250,7 @@ async def translate_message(
 
 
 
-    # =========================
-    # COOLDOWN
-    # =========================
-
+    # Cooldown
 
     if user_id in cooldowns:
 
@@ -250,10 +269,7 @@ async def translate_message(
 
 
 
-    # =========================
-    # MINUTE LIMIT
-    # =========================
-
+    # Minute limit
 
     minute_usage[user_id] = [
 
@@ -281,10 +297,7 @@ async def translate_message(
 
 
 
-    # =========================
-    # DAILY LIMITS
-    # =========================
-
+    # Daily limits
 
     current_user = usage["users"].get(
         user_id,
@@ -337,21 +350,30 @@ async def translate_message(
 
 
     # =========================
-    # TRANSLATION
+    # TRANSLATION ENGINE
     # =========================
 
     if result is None:
 
 
-        # Try DeepL first
+        # Check if DeepL is allowed
 
         deepl_available = (
-            deepl_client is not None
+
+            translator_mode["mode"] == "deepl"
+
+            and deepl_client is not None
+
             and (
+
                 deepl_usage["characters_used"] + len(text)
+
                 <= DEEPL_CHARACTER_LIMIT
+
             )
+
         )
+
 
 
         if deepl_available:
@@ -359,32 +381,53 @@ async def translate_message(
 
             try:
 
+
                 target_language = (
+
                     "EN-US"
+
                     if target == "en"
+
                     else "ES"
+
                 )
 
 
                 translated = deepl_client.translate_text(
+
                     text,
+
                     target_lang=target_language
+
                 )
 
 
                 result = translated.text
 
 
+
                 deepl_usage["characters_used"] += len(text)
 
 
+
                 save(
+
                     DEEPL_USAGE_FILE,
+
                     deepl_usage
+
                 )
 
 
+
+                print(
+                    "Used DeepL"
+                )
+
+
+
             except Exception as e:
+
 
                 print(
                     f"DeepL error: {e}"
@@ -394,15 +437,26 @@ async def translate_message(
 
 
 
+
         # Google fallback
 
         if result is None:
 
 
             result = GoogleTranslator(
+
                 source="auto",
+
                 target=target
+
             ).translate(text)
+
+
+
+            print(
+                "Used Google Translate"
+            )
+
 
 
 
@@ -410,16 +464,22 @@ async def translate_message(
 
         cache[cache_key] = {
 
+
             "text": result,
 
+
             "time": now
+
 
         }
 
 
         save(
+
             CACHE_FILE,
+
             cache
+
         )
 
 
@@ -430,16 +490,22 @@ async def translate_message(
 
 
     usage["users"][user_id] = (
+
         current_user + 1
+
     )
 
 
     usage["global"] += 1
 
 
+
     save(
+
         USAGE_FILE,
+
         usage
+
     )
 
 
@@ -450,28 +516,92 @@ async def translate_message(
 
 
     embed = discord.Embed(
+
         title="🌎 Translation"
+
     )
 
 
+
     embed.add_field(
+
         name="Original",
+
         value=text[:1024],
+
         inline=False
+
     )
+
 
 
     embed.add_field(
+
         name="Translated",
+
         value=result[:1024],
+
         inline=False
+
     )
+
 
 
     await interaction.followup.send(
+
         embed=embed,
+
         ephemeral=True
+
     )
+
+
+
+
+# =========================
+# TRANSLATOR SWITCH COMMAND
+# =========================
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def translator(ctx, mode=None):
+
+
+    if mode not in ["deepl", "google"]:
+
+
+        await ctx.send(
+
+            "Usage: `!translator deepl` or `!translator google`"
+
+        )
+
+        return
+
+
+
+    translator_mode["mode"] = mode
+
+
+
+    save(
+
+        TRANSLATOR_MODE_FILE,
+
+        translator_mode
+
+    )
+
+
+
+    await ctx.send(
+
+        f"✅ Translator switched to **{mode.upper()}**"
+
+    )
+
+
 
 
 
@@ -489,70 +619,127 @@ async def deeplstatus(ctx):
 
 
     remaining = (
+
         DEEPL_CHARACTER_LIMIT - used
+
     )
+
 
 
     embed = discord.Embed(
+
         title="🔤 DeepL Usage"
+
     )
 
 
+
     embed.add_field(
+
         name="Used",
+
         value=f"{used:,} / {DEEPL_CHARACTER_LIMIT:,}",
+
         inline=False
+
     )
+
 
 
     embed.add_field(
+
         name="Remaining",
+
         value=f"{remaining:,} characters",
+
         inline=False
+
     )
+
+
+
+    embed.add_field(
+
+        name="Current Mode",
+
+        value=translator_mode["mode"].upper(),
+
+        inline=False
+
+    )
+
 
 
     await ctx.send(
+
         embed=embed
+
     )
 
 
 
+
+
 # =========================
-# CONTEXT MENUS
+# DISCORD CONTEXT MENUS
 # =========================
 
 
 @app_commands.context_menu(
+
     name="Translate to English"
+
 )
+
 async def translate_to_english(
+
     interaction: discord.Interaction,
+
     message: discord.Message
+
 ):
 
+
     await translate_message(
+
         interaction,
+
         message,
+
         "en"
+
     )
+
 
 
 
 
 @app_commands.context_menu(
+
     name="Translate to Spanish"
+
 )
+
 async def translate_to_spanish(
+
     interaction: discord.Interaction,
+
     message: discord.Message
+
 ):
 
+
     await translate_message(
+
         interaction,
+
         message,
+
         "es"
+
     )
+
+
 
 
 
@@ -569,12 +756,16 @@ async def on_ready():
 
 
         bot.tree.add_command(
+
             translate_to_english
+
         )
 
 
         bot.tree.add_command(
+
             translate_to_spanish
+
         )
 
 
@@ -584,7 +775,16 @@ async def on_ready():
 
 
     print(
+
         f"Logged in as {bot.user}"
+
+    )
+
+
+    print(
+
+        f"Translator mode: {translator_mode['mode']}"
+
     )
 
 
