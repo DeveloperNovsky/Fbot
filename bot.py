@@ -3482,15 +3482,15 @@ async def on_command_error(
 # ============================================================
 
 if not DISCORD_TOKEN:
-
-    print(
-        "🚨 ERROR: DISCORD_TOKEN environment "
-        "variable is missing."
-    )
-
+    print("🚨 ERROR: DISCORD_TOKEN environment variable is missing.")
 else:
+    print("🚀 Starting Fyre Bird Bot...")
 
-    bot.run(
-        DISCORD_TOKEN
-    )
+    try:
+        bot.run(DISCORD_TOKEN)
+    except Exception as e:
+        print(f"🚨 BOT CRASHED: {type(e).__name__}: {e}")
+        raise
+    finally:
+        print("⚠️ bot.run() has returned. The bot process is ending.")
 
