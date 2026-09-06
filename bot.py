@@ -458,6 +458,46 @@ async def adddn(ctx, member: discord.Member = None, amount: str = None):
 
 @bot.command()
 @commands.has_permissions(administrator=True)
+async def finddonations(ctx):
+    results = []
+
+    for root, dirs, files in os.walk("/"):
+        # Skip system directories that aren't useful
+        dirs[:] = [
+            d for d in dirs
+            if d not in ("proc", "sys", "dev", "usr", "opt")
+        ]
+
+        if "donations.json" in files:
+            path = os.path.join(root, "donations.json")
+
+            try:
+                size = os.path.getsize(path)
+
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+
+                results.append(
+                    f"{path} — {size:,} bytes — "
+                    f"{len(data.get('donations', {}))} users — "
+                    f"Clan Bank: {data.get('clan_bank', 0):,}"
+                )
+
+            except Exception as e:
+                results.append(f"{path} — ERROR: {e}")
+
+    if not results:
+        await ctx.send("❌ No donations.json files found.")
+
+    else:
+        await ctx.send(
+            "🔎 **donations.json files found:**\n```text\n"
+            + "\n".join(results)[:1900]
+            + "\n```"
+        )
+
+@bot.command()
+@commands.has_permissions(administrator=True)
 async def resetd(ctx):
     if not ctx.message.mentions:
         await ctx.send("❌ Usage: `!resetd @username`")
