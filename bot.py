@@ -508,6 +508,30 @@ async def removetotal(ctx, *, input: str):
     save_entries()
     await ctx.send("❌ Users removed totally:\n```" + "\n".join(summary) + "```")
 
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def datacheck(ctx):
+    try:
+        files = os.listdir("/data")
+
+        if not files:
+            await ctx.send("⚠️ `/data` exists but is EMPTY.")
+            return
+
+        result = "📁 **Files in `/data`:**\n```text\n"
+
+        for filename in files:
+            path = os.path.join("/data", filename)
+            size = os.path.getsize(path)
+            result += f"{filename} — {size:,} bytes\n"
+
+        result += "```"
+
+        await ctx.send(result)
+
+    except Exception as e:
+        await ctx.send(f"❌ Error accessing `/data`: `{e}`")
+
 
 @bot.command()
 @commands.has_permissions(administrator=True)
