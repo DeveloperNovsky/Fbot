@@ -2,12 +2,14 @@ import os
 import json
 import random
 import re
+import copy
 from datetime import datetime
 
 import discord
 from discord.ext import commands
 
 # ================== CONFIG ==================
+
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
 intents = discord.Intents.default()
@@ -15,11 +17,30 @@ intents.message_content = True
 intents.guilds = True
 intents.members = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(
+    command_prefix="!",
+    intents=intents
+)
 
 # ================== FILE PATHS ==================
+
 RAFFLE_FILE = "/data/raffle_entries.json"
+
+# ================== DONATION STORAGE ==================
+
 DONATIONS_FILE = "/data/donations.json"
+
+# Automatic donation backups are stored here.
+DONATION_BACKUP_DIR = "/data/donation_backups"
+
+# Keep the most recent 50 automatic/manual backups.
+MAX_DONATION_BACKUPS = 50
+
+# Make sure Railway's persistent volume directories exist.
+os.makedirs("/data", exist_ok=True)
+os.makedirs(DONATION_BACKUP_DIR, exist_ok=True)
+
+# ================== ALLOWED CHANNELS ==================
 
 ALLOWED_CHANNELS = [
     1111111111111111111,  # Mydiscord
@@ -28,7 +49,7 @@ ALLOWED_CHANNELS = [
     1454933219467329537,  # Fyre setup channel
 ]
 
-os.makedirs("/data", exist_ok=True)
+# ================== DONATION ROLES ==================
 
 DONATION_ROLES = [
     (1_000_000, "Bronze - 1M Donation"),
@@ -49,47 +70,115 @@ DONATION_ROLES = [
     (4_000_000_000, "Twisted - 4B Donation"),
 ]
 
-# ================== RAFFLE DATA ==================
+# ============================================================
+# RAFFLE DATA
+# ============================================================
 
 def load_entries():
+
     if not os.path.exists(RAFFLE_FILE):
         return {}, {}
 
-    with open(RAFFLE_FILE, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    try:
 
-    return (
-        data.get("raffle_entries", {}),
-        data.get("display_names", {})
-    )
+        with open(
+            RAFFLE_FILE,
+            "r",
+            encoding="utf-8"
+        ) as f:
+
+            data = json.load(f)
+
+        return (
+            data.get("raffle_entries", {}),
+            data.get("display_names", {})
+        )
+
+    except Exception as e:
+
+        print(
+            f"WARNING: Could not load raffle data: {e}"
+        )
+
+        return {}, {}
 
 
 def save_entries():
-    with open(RAFFLE_FILE, "w", encoding="utf-8") as f:
-        json.dump(
-            {
-                "raffle_entries": raffle_entries,
-                "display_names": user_display_names
-            },
-            f,
-            indent=2
+
+    temp_file = RAFFLE_FILE + ".tmp"
+
+    try:
+
+        with open(
+            temp_file,
+            "w",
+            encoding="utf-8"
+        ) as f:
+
+            json.dump(
+                {
+                    "raffle_entries": raffle_entries,
+                    "display_names": user_display_names
+                },
+                f,
+                indent=2
+            )
+
+            f.flush()
+            os.fsync(f.fileno())
+
+        os.replace(
+            temp_file,
+            RAFFLE_FILE
         )
+
+        return True
+
+    except Exception as e:
+
+        print(
+            f"ERROR: Could not save raffle data: {e}"
+        )
+
+        try:
+
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+
+        except OSError:
+            pass
+
+        return False
 
 
 raffle_entries, user_display_names = load_entries()
+
 last_batch = []
 
 
-def add_ticket(username, display_name=None, amount=1):
+def add_ticket(
+    username,
+    display_name=None,
+    amount=1
+):
+
     key = username.lower()
 
-    raffle_entries[key] = raffle_entries.get(key, 0) + amount
+    raffle_entries[key] = (
+        raffle_entries.get(key, 0)
+        + amount
+    )
 
     if display_name:
+
         user_display_names[key] = display_name
 
 
-def remove_ticket(username, amount=1):
+def remove_ticket(
+    username,
+    amount=1
+):
+
     key = username.lower()
 
     if key not in raffle_entries:
@@ -98,46 +187,294 @@ def remove_ticket(username, amount=1):
     raffle_entries[key] -= amount
 
     if raffle_entries[key] <= 0:
+
         raffle_entries.pop(key)
-        user_display_names.pop(key, None)
+
+        user_display_names.pop(
+            key,
+            None
+        )
 
 
-# ================== DONATIONS DATA ==================
+# ============================================================
+# SAFE DONATION STORAGE
+# ============================================================
+
+# This becomes False automatically if the database is
+# missing, corrupt, or otherwise invalid.
+#
+# When False, donation-changing commands are blocked so the
+# bot cannot accidentally overwrite the database with blanks.
+donation_database_healthy = True
+
+
+def validate_donation_database(data):
+
+    if not isinstance(data, dict):
+
+        raise ValueError(
+            "Donation database is not a JSON object."
+        )
+
+    if "donations" not in data:
+
+        raise ValueError(
+            "Donation database is missing 'donations'."
+        )
+
+    if "clan_bank" not in data:
+
+        raise ValueError(
+            "Donation database is missing 'clan_bank'."
+        )
+
+    if not isinstance(
+        data["donations"],
+        dict
+    ):
+
+        raise ValueError(
+            "'donations' must be a dictionary."
+        )
+
+    if not isinstance(
+        data["clan_bank"],
+        int
+    ):
+
+        raise ValueError(
+            "'clan_bank' must be an integer."
+        )
+
+    # Make sure every stored donation value is an integer.
+    for key, value in data["donations"].items():
+
+        if not isinstance(value, int):
+
+            raise ValueError(
+                f"Donation value for '{key}' "
+                f"is not an integer."
+            )
+
+        if value < 0:
+
+            raise ValueError(
+                f"Donation value for '{key}' "
+                f"cannot be negative."
+            )
+
+    if data["clan_bank"] < 0:
+
+        raise ValueError(
+            "Clan bank cannot be negative."
+        )
+
+    return True
+
+
+def cleanup_old_donation_backups():
+
+    try:
+
+        backups = []
+
+        for filename in os.listdir(
+            DONATION_BACKUP_DIR
+        ):
+
+            if not filename.startswith(
+                "donations_"
+            ):
+                continue
+
+            if not filename.endswith(
+                ".json"
+            ):
+                continue
+
+            path = os.path.join(
+                DONATION_BACKUP_DIR,
+                filename
+            )
+
+            backups.append(path)
+
+        backups.sort(
+            key=os.path.getmtime,
+            reverse=True
+        )
+
+        for old_backup in backups[
+            MAX_DONATION_BACKUPS:
+        ]:
+
+            try:
+                os.remove(old_backup)
+
+            except OSError:
+                pass
+
+    except Exception as e:
+
+        print(
+            f"WARNING: Backup cleanup failed: {e}"
+        )
+
+
+def create_donation_backup(
+    reason="automatic"
+):
+
+    if not os.path.exists(
+        DONATIONS_FILE
+    ):
+
+        print(
+            "BACKUP SKIPPED: "
+            "donations.json does not exist."
+        )
+
+        return None
+
+    try:
+
+        timestamp = datetime.now().strftime(
+            "%Y%m%d_%H%M%S_%f"
+        )[:-3]
+
+        backup_path = os.path.join(
+            DONATION_BACKUP_DIR,
+            f"donations_{timestamp}_{reason}.json"
+        )
+
+        with open(
+            DONATIONS_FILE,
+            "rb"
+        ) as source:
+
+            data = source.read()
+
+        with open(
+            backup_path,
+            "wb"
+        ) as backup:
+
+            backup.write(data)
+            backup.flush()
+            os.fsync(
+                backup.fileno()
+            )
+
+        print(
+            f"Donation backup created: "
+            f"{backup_path}"
+        )
+
+        cleanup_old_donation_backups()
+
+        return backup_path
+
+    except Exception as e:
+
+        print(
+            "WARNING: Could not create "
+            f"donation backup: {e}"
+        )
+
+        return None
+
 
 def load_donations():
-    """
-    Loads the donation database.
 
-    IMPORTANT:
-    This function no longer automatically overwrites a missing/invalid
-    donations file with an empty database.
+    global donation_database_healthy
 
-    This prevents a future restart/deployment from silently wiping
-    the in-memory data and creating a fresh database.
-    """
+    # --------------------------------------------------------
+    # MISSING FILE
+    # --------------------------------------------------------
 
-    if not os.path.exists(DONATIONS_FILE):
-        print("WARNING: donations.json does not exist.")
-        print("Starting with an empty in-memory database.")
-        print("No donations file has been automatically created.")
+    if not os.path.exists(
+        DONATIONS_FILE
+    ):
+
+        donation_database_healthy = False
+
+        print(
+            "\n"
+            "====================================================\n"
+            "🚨 CRITICAL DONATION DATABASE WARNING\n"
+            "====================================================\n"
+            "donations.json DOES NOT EXIST.\n"
+            "\n"
+            "The bot WILL NOT create a blank database.\n"
+            "Donation-changing commands will be blocked.\n"
+            "\n"
+            f"Expected file:\n{DONATIONS_FILE}\n"
+            "====================================================\n"
+        )
 
         return {
             "donations": {},
             "clan_bank": 0
         }
 
+    # --------------------------------------------------------
+    # LOAD EXISTING FILE
+    # --------------------------------------------------------
+
     try:
-        with open(DONATIONS_FILE, "r", encoding="utf-8") as f:
+
+        with open(
+            DONATIONS_FILE,
+            "r",
+            encoding="utf-8"
+        ) as f:
+
             data = json.load(f)
 
-        data.setdefault("donations", {})
-        data.setdefault("clan_bank", 0)
+        validate_donation_database(
+            data
+        )
+
+        donation_database_healthy = True
+
+        print(
+            "\n"
+            "====================================================\n"
+            "💰 DONATION DATABASE LOADED\n"
+            "====================================================\n"
+            f"Users: "
+            f"{len(data['donations']):,}\n"
+            f"Clan Bank: "
+            f"{data['clan_bank']:,} gp\n"
+            f"File: {DONATIONS_FILE}\n"
+            "Status: HEALTHY\n"
+            "====================================================\n"
+        )
 
         return data
 
-    except json.JSONDecodeError as e:
-        print("ERROR: donations.json contains invalid JSON.")
-        print(e)
+    except (
+        json.JSONDecodeError,
+        ValueError,
+        TypeError,
+        OSError
+    ) as e:
+
+        donation_database_healthy = False
+
+        print(
+            "\n"
+            "====================================================\n"
+            "🚨 CRITICAL DONATION DATABASE ERROR\n"
+            "====================================================\n"
+            f"{e}\n"
+            "\n"
+            "The bot WILL NOT overwrite the file.\n"
+            "Donation-changing commands are blocked.\n"
+            "\n"
+            "The existing donation data has been protected.\n"
+            "====================================================\n"
+        )
 
         return {
             "donations": {},
@@ -146,86 +483,224 @@ def load_donations():
 
 
 def save_donations():
-    """
-    Saves donations safely using a temporary file first.
-    """
 
-    temp_file = DONATIONS_FILE + ".tmp"
+    global donation_database_healthy
 
-    with open(temp_file, "w", encoding="utf-8") as f:
-        json.dump(
-            donations_data,
-            f,
-            indent=2
+    # --------------------------------------------------------
+    # VALIDATE BEFORE WRITING
+    # --------------------------------------------------------
+
+    try:
+
+        validate_donation_database(
+            donations_data
         )
 
-    os.replace(temp_file, DONATIONS_FILE)
+    except Exception as e:
+
+        print(
+            "\n"
+            "🚨 SAVE BLOCKED!\n"
+            "Donation database failed validation:\n"
+            f"{e}\n"
+            "The existing donations.json was NOT changed."
+        )
+
+        donation_database_healthy = False
+
+        return False
+
+    # --------------------------------------------------------
+    # BACKUP EXISTING DATABASE FIRST
+    # --------------------------------------------------------
+
+    if os.path.exists(
+        DONATIONS_FILE
+    ):
+
+        create_donation_backup(
+            reason="before_save"
+        )
+
+    # --------------------------------------------------------
+    # ATOMIC SAVE
+    # --------------------------------------------------------
+
+    temp_file = (
+        DONATIONS_FILE
+        + ".tmp"
+    )
+
+    try:
+
+        with open(
+            temp_file,
+            "w",
+            encoding="utf-8"
+        ) as f:
+
+            json.dump(
+                donations_data,
+                f,
+                indent=2
+            )
+
+            f.flush()
+
+            os.fsync(
+                f.fileno()
+            )
+
+        # The old file stays in place until the new file
+        # is completely written.
+        os.replace(
+            temp_file,
+            DONATIONS_FILE
+        )
+
+        # Verify the newly written file can actually be
+        # read back as valid JSON.
+        with open(
+            DONATIONS_FILE,
+            "r",
+            encoding="utf-8"
+        ) as f:
+
+            verification_data = json.load(f)
+
+        validate_donation_database(
+            verification_data
+        )
+
+        donation_database_healthy = True
+
+        print(
+            "Donation database saved "
+            "and verified successfully."
+        )
+
+        return True
+
+    except Exception as e:
+
+        donation_database_healthy = False
+
+        print(
+            "\n"
+            "🚨 CRITICAL: DONATION SAVE FAILED\n"
+            f"{e}\n"
+            "\n"
+            "The previous donations.json should "
+            "remain intact."
+        )
+
+        try:
+
+            if os.path.exists(
+                temp_file
+            ):
+
+                os.remove(
+                    temp_file
+                )
+
+        except OSError:
+            pass
+
+        return False
 
 
 donations_data = load_donations()
 
 
-def parse_amount(amount: str) -> int:
-    amount = amount.lower().replace(",", "").strip()
+def donation_database_available():
 
-    if amount.endswith("k"):
-        return int(float(amount[:-1]) * 1_000)
+    return (
+        donation_database_healthy
+        and os.path.exists(
+            DONATIONS_FILE
+        )
+    )
 
-    if amount.endswith("m"):
-        return int(float(amount[:-1]) * 1_000_000)
 
-    if amount.endswith("b"):
-        return int(float(amount[:-1]) * 1_000_000_000)
+async def require_donation_database(ctx):
 
-    if amount.isdigit():
-        return int(amount)
+    if donation_database_available():
+        return True
 
-    raise ValueError
+    await ctx.send(
+        "🚨 **DONATION DATABASE PROTECTED**\n\n"
+        "I detected a problem with "
+        "`donations.json`.\n\n"
+        "I have intentionally **blocked donation "
+        "changes** so your data cannot be "
+        "accidentally overwritten.\n\n"
+        "Check the Railway Volume before making "
+        "any donation changes."
+    )
+
+    return False
+
+
+def rollback_donations(
+    backup_state
+):
+
+    global donations_data
+
+    donations_data.clear()
+
+    donations_data.update(
+        copy.deepcopy(
+            backup_state
+        )
+    )
+
+
+def backup_donation_state():
+
+    return copy.deepcopy(
+        donations_data
+    )
 
 
 # ============================================================
 # DONATION RECOVERY SYSTEM
 # ============================================================
 
-# This variable stores the latest recovery scan in memory.
 recovery_data = None
 
 
 def extract_number(text):
-    """
-    Extracts numbers such as:
-
-    584,366,000
-    20,000,000
-    5M
-    """
 
     if not text:
         return None
 
-    match = re.search(r"`?([\d,]+)`?\s*gp", text, re.IGNORECASE)
+    match = re.search(
+        r"`?([\d,]+)`?\s*gp",
+        text,
+        re.IGNORECASE
+    )
 
     if match:
+
         try:
-            return int(match.group(1).replace(",", ""))
+
+            return int(
+                match.group(1)
+                .replace(",", "")
+            )
+
         except ValueError:
             pass
 
     return None
 
 
-def extract_field_number(text, field_names):
-    """
-    Finds a number following one of the specified field names.
-
-    Example:
-
-    Clan Bank: `584,366,000` gp
-
-    or
-
-    New Clan Bank Total: `584,366,000` gp
-    """
+def extract_field_number(
+    text,
+    field_names
+):
 
     for field in field_names:
 
@@ -241,10 +716,14 @@ def extract_field_number(text, field_names):
         )
 
         if match:
+
             try:
+
                 return int(
-                    match.group(1).replace(",", "")
+                    match.group(1)
+                    .replace(",", "")
                 )
+
             except ValueError:
                 pass
 
@@ -252,15 +731,6 @@ def extract_field_number(text, field_names):
 
 
 def extract_user_name(text):
-    """
-    Extracts:
-
-    User: **Trainman33**
-
-    or:
-
-    Recipient: **Some Name**
-    """
 
     patterns = [
         r"User:\s*\*\*(.*?)\*\*",
@@ -276,6 +746,7 @@ def extract_user_name(text):
         )
 
         if match:
+
             name = match.group(1).strip()
 
             if name:
@@ -284,46 +755,49 @@ def extract_user_name(text):
     return None
 
 
-def parse_recovery_message(message):
-    """
-    Examines a Discord message and determines whether it is one
-    of the bot's historical donation records.
-
-    Returns:
-        {
-            "type": "...",
-            "user": "...",
-            "total": ...,
-            "bank": ...,
-            "amount": ...
-        }
-
-    or None if it is not a donation record.
-    """
+def parse_recovery_message(
+    message
+):
 
     text_parts = []
 
     if message.content:
-        text_parts.append(message.content)
 
-    # Also inspect embeds in case older bot versions used embeds.
+        text_parts.append(
+            message.content
+        )
+
     for embed in message.embeds:
 
         if embed.title:
-            text_parts.append(embed.title)
+
+            text_parts.append(
+                embed.title
+            )
 
         if embed.description:
-            text_parts.append(embed.description)
+
+            text_parts.append(
+                embed.description
+            )
 
         for field in embed.fields:
 
             if field.name:
-                text_parts.append(field.name)
+
+                text_parts.append(
+                    field.name
+                )
 
             if field.value:
-                text_parts.append(field.value)
 
-    text = "\n".join(text_parts).strip()
+                text_parts.append(
+                    field.value
+                )
+
+    text = "\n".join(
+        text_parts
+    ).strip()
 
     if not text:
         return None
@@ -334,7 +808,9 @@ def parse_recovery_message(message):
 
     if "Donation Added" in text:
 
-        user = extract_user_name(text)
+        user = extract_user_name(
+            text
+        )
 
         total = extract_field_number(
             text,
@@ -373,7 +849,9 @@ def parse_recovery_message(message):
 
     if "Donation Credited" in text:
 
-        user = extract_user_name(text)
+        user = extract_user_name(
+            text
+        )
 
         total = extract_field_number(
             text,
@@ -412,7 +890,9 @@ def parse_recovery_message(message):
 
     if "Donation Credit Set" in text:
 
-        user = extract_user_name(text)
+        user = extract_user_name(
+            text
+        )
 
         total = extract_field_number(
             text,
@@ -443,7 +923,9 @@ def parse_recovery_message(message):
 
     if "Donation Reset" in text:
 
-        user = extract_user_name(text)
+        user = extract_user_name(
+            text
+        )
 
         if user:
 
@@ -543,13 +1025,6 @@ def parse_recovery_message(message):
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def recoverdonations(ctx):
-    """
-    Scans the ENTIRE Discord history of the current channel.
-
-    IMPORTANT:
-    This command DOES NOT modify donations.json.
-    It only creates a recovery preview.
-    """
 
     global recovery_data
 
@@ -575,26 +1050,17 @@ async def recoverdonations(ctx):
 
             scanned_messages += 1
 
-            # Only inspect bot-generated messages.
-            #
-            # This prevents normal commands such as:
-            #
-            # !adddn @user 10m
-            #
-            # from being interpreted as donation records.
             if not message.author.bot:
                 continue
 
-            record = parse_recovery_message(message)
+            record = parse_recovery_message(
+                message
+            )
 
             if not record:
                 continue
 
             donation_events += 1
-
-            # ------------------------------------------------
-            # USER DONATION
-            # ------------------------------------------------
 
             if record["type"] in (
                 "donation_added",
@@ -611,10 +1077,6 @@ async def recoverdonations(ctx):
                     "message_id": message.id,
                     "timestamp": message.created_at.isoformat()
                 }
-
-            # ------------------------------------------------
-            # CLAN BANK
-            # ------------------------------------------------
 
             if record.get("bank") is not None:
 
@@ -640,23 +1102,20 @@ async def recoverdonations(ctx):
     except discord.HTTPException as e:
 
         await ctx.send(
-            f"❌ Discord returned an error while reading history:\n"
+            "❌ Discord returned an error while reading history:\n"
             f"`{e}`"
         )
 
         return
 
-    # --------------------------------------------------------
-    # BUILD RECOVERY DATA
-    # --------------------------------------------------------
-
     recovered_donations = {}
 
     for username, info in recovered_users.items():
 
-        recovered_donations[username] = info["total"]
+        recovered_donations[
+            username
+        ] = info["total"]
 
-    # Current database
     current_users = donations_data.get(
         "donations",
         {}
@@ -680,15 +1139,13 @@ async def recoverdonations(ctx):
             if latest_bank
             else None
         ),
-        "current_users": dict(current_users),
+        "current_users": dict(
+            current_users
+        ),
         "current_bank": current_bank,
         "scanned_messages": scanned_messages,
         "donation_events": donation_events
     }
-
-    # --------------------------------------------------------
-    # DISPLAY RESULTS
-    # --------------------------------------------------------
 
     if not recovered_users:
 
@@ -714,23 +1171,30 @@ async def recoverdonations(ctx):
             f"{username}: {info['total']:,} gp"
         )
 
-    # Discord has a 2000-character message limit.
-    # Split the list into multiple messages.
-
     chunks = []
     current_chunk = ""
 
     for line in lines:
 
-        if len(current_chunk) + len(line) + 1 > 1800:
+        if (
+            len(current_chunk)
+            + len(line)
+            + 1
+            > 1800
+        ):
 
-            chunks.append(current_chunk)
+            chunks.append(
+                current_chunk
+            )
+
             current_chunk = ""
 
         current_chunk += line + "\n"
 
     if current_chunk:
-        chunks.append(current_chunk)
+        chunks.append(
+            current_chunk
+        )
 
     await ctx.send(
         "✅ **DONATION RECOVERY SCAN COMPLETE**\n\n"
@@ -748,15 +1212,11 @@ async def recoverdonations(ctx):
         "📋 **Recovered Users:**"
     )
 
-    for index, chunk in enumerate(chunks, start=1):
+    for chunk in chunks:
 
         await ctx.send(
             f"```text\n{chunk}```"
         )
-
-    # --------------------------------------------------------
-    # CURRENT DATABASE COMPARISON
-    # --------------------------------------------------------
 
     await ctx.send(
         "⚠️ **CURRENT DATABASE WAS NOT CHANGED.**\n\n"
@@ -772,11 +1232,6 @@ async def recoverdonations(ctx):
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def confirmrecovery(ctx):
-    """
-    Writes the recovery data to donations.json.
-
-    A backup of the current file is created first.
-    """
 
     global recovery_data
     global donations_data
@@ -790,10 +1245,21 @@ async def confirmrecovery(ctx):
 
         return
 
-    recovered_users = recovery_data["users"]
-    historical_bank = recovery_data["historical_bank"]
-    current_users = recovery_data["current_users"]
-    current_bank = recovery_data["current_bank"]
+    recovered_users = recovery_data[
+        "users"
+    ]
+
+    historical_bank = recovery_data[
+        "historical_bank"
+    ]
+
+    current_users = recovery_data[
+        "current_users"
+    ]
+
+    current_bank = recovery_data[
+        "current_bank"
+    ]
 
     # --------------------------------------------------------
     # BACKUP CURRENT DATABASE
@@ -801,32 +1267,13 @@ async def confirmrecovery(ctx):
 
     backup_path = None
 
-    if os.path.exists(DONATIONS_FILE):
+    if os.path.exists(
+        DONATIONS_FILE
+    ):
 
-        timestamp = datetime.now().strftime(
-            "%Y%m%d_%H%M%S"
+        backup_path = create_donation_backup(
+            reason="before_recovery"
         )
-
-        backup_path = (
-            f"/data/donations_before_recovery_"
-            f"{timestamp}.json"
-        )
-
-        with open(
-            DONATIONS_FILE,
-            "r",
-            encoding="utf-8"
-        ) as source:
-
-            with open(
-                backup_path,
-                "w",
-                encoding="utf-8"
-            ) as backup:
-
-                backup.write(
-                    source.read()
-                )
 
     # --------------------------------------------------------
     # BUILD RECOVERED USER DATA
@@ -834,13 +1281,6 @@ async def confirmrecovery(ctx):
 
     recovered_donations = {}
 
-    # Historical Discord data uses names because the old
-    # messages contain display names rather than IDs.
-    #
-    # We try to match those names to current Discord members.
-    # If a member cannot be found, we store the name as a
-    # fallback key so the data is NOT lost.
-    
     guild = ctx.guild
 
     matched_count = 0
@@ -852,20 +1292,26 @@ async def confirmrecovery(ctx):
 
         matched_member = None
 
-        # Try exact display name first.
+        # Exact display name.
         for member in guild.members:
 
-            if member.display_name.lower() == username.lower():
+            if (
+                member.display_name.lower()
+                == username.lower()
+            ):
 
                 matched_member = member
                 break
 
-        # Try username second.
+        # Username fallback.
         if matched_member is None:
 
             for member in guild.members:
 
-                if member.name.lower() == username.lower():
+                if (
+                    member.name.lower()
+                    == username.lower()
+                ):
 
                     matched_member = member
                     break
@@ -880,9 +1326,6 @@ async def confirmrecovery(ctx):
 
         else:
 
-            # Fallback key.
-            #
-            # This is intentionally NOT discarded.
             recovered_donations[
                 f"recovered:{username.lower()}"
             ] = total
@@ -890,29 +1333,20 @@ async def confirmrecovery(ctx):
             unmatched_count += 1
 
     # --------------------------------------------------------
-    # PRESERVE CURRENT USERS THAT WERE NOT FOUND IN HISTORY
+    # PRESERVE CURRENT USERS NOT FOUND IN HISTORY
     # --------------------------------------------------------
 
     for key, value in current_users.items():
 
         if key not in recovered_donations:
 
-            recovered_donations[key] = value
+            recovered_donations[
+                key
+            ] = value
 
     # --------------------------------------------------------
-    # DETERMINE CLAN BANK
+    # DETERMINE BANK
     # --------------------------------------------------------
-
-    #
-    # The historical bank is the last bank balance explicitly
-    # recorded in Discord.
-    #
-    # We DO NOT automatically throw away the current database
-    # balance.
-    #
-    # If the historical bank exists, use it as the recovered
-    # historical baseline.
-    #
 
     if historical_bank is not None:
 
@@ -923,17 +1357,35 @@ async def confirmrecovery(ctx):
         proposed_bank = current_bank
 
     # --------------------------------------------------------
-    # SAVE
+    # SAVE RECOVERY
     # --------------------------------------------------------
 
-    donations_data = {
-        "donations": recovered_donations,
-        "clan_bank": proposed_bank
-    }
+    previous_state = backup_donation_state()
 
-    save_donations()
+    donations_data.clear()
 
-    # Recovery is consumed.
+    donations_data.update(
+        {
+            "donations": recovered_donations,
+            "clan_bank": proposed_bank
+        }
+    )
+
+    if not save_donations():
+
+        rollback_donations(
+            previous_state
+        )
+
+        await ctx.send(
+            "🚨 **RECOVERY SAVE FAILED**\n\n"
+            "The recovered data was **NOT** committed.\n"
+            "The previous in-memory database was restored.\n\n"
+            "Check the Railway logs before trying again."
+        )
+
+        return
+
     recovery_data = None
 
     # --------------------------------------------------------
@@ -951,8 +1403,8 @@ async def confirmrecovery(ctx):
     if backup_path:
 
         message += (
-            f"🛡️ **Backup created:**\n"
-            f"`{backup_path}`\n\n"
+            "🛡️ **Backup created before recovery:**\n"
+            f"`{os.path.basename(backup_path)}`\n\n"
         )
 
     message += (
@@ -960,15 +1412,14 @@ async def confirmrecovery(ctx):
         "`/data/donations.json`."
     )
 
-    await ctx.send(message)
+    await ctx.send(
+        message
+    )
 
 
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def recoverycancel(ctx):
-    """
-    Clears the pending recovery scan without changing the database.
-    """
 
     global recovery_data
 
@@ -991,9 +1442,6 @@ async def recoverycancel(ctx):
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def donationdata(ctx):
-    """
-    Displays the current donation database.
-    """
 
     users = donations_data.get(
         "donations",
@@ -1018,24 +1466,36 @@ async def donationdata(ctx):
         )
 
     if not lines:
-        lines.append("No users found.")
 
-    # Split for Discord's message limit.
+        lines.append(
+            "No users found."
+        )
 
     chunks = []
     current_chunk = ""
 
     for line in lines:
 
-        if len(current_chunk) + len(line) + 1 > 1800:
+        if (
+            len(current_chunk)
+            + len(line)
+            + 1
+            > 1800
+        ):
 
-            chunks.append(current_chunk)
+            chunks.append(
+                current_chunk
+            )
+
             current_chunk = ""
 
         current_chunk += line + "\n"
 
     if current_chunk:
-        chunks.append(current_chunk)
+
+        chunks.append(
+            current_chunk
+        )
 
     await ctx.send(
         f"💰 **CURRENT DONATION DATABASE**\n"
@@ -1050,11 +1510,407 @@ async def donationdata(ctx):
         )
 
 
-# ================== EVENTS ==================
+# ============================================================
+# DONATION BACKUP COMMANDS
+# ============================================================
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def backupdonations(ctx):
+
+    if not os.path.exists(
+        DONATIONS_FILE
+    ):
+
+        await ctx.send(
+            "🚨 **No donations.json found.**\n"
+            "No backup was created."
+        )
+
+        return
+
+    backup_path = create_donation_backup(
+        reason="manual"
+    )
+
+    if not backup_path:
+
+        await ctx.send(
+            "❌ Failed to create donation backup.\n"
+            "Check the Railway logs."
+        )
+
+        return
+
+    filename = os.path.basename(
+        backup_path
+    )
+
+    await ctx.send(
+        "🛡️ **DONATION BACKUP CREATED**\n\n"
+        f"Backup: `{filename}`\n"
+        f"Users: `{len(donations_data['donations']):,}`\n"
+        f"Clan Bank: `{donations_data['clan_bank']:,} gp`\n\n"
+        "Your current donation database has been backed up."
+    )
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def listbackups(ctx):
+
+    try:
+
+        backups = []
+
+        for filename in os.listdir(
+            DONATION_BACKUP_DIR
+        ):
+
+            if not filename.startswith(
+                "donations_"
+            ):
+
+                continue
+
+            if not filename.endswith(
+                ".json"
+            ):
+
+                continue
+
+            path = os.path.join(
+                DONATION_BACKUP_DIR,
+                filename
+            )
+
+            backups.append(
+                (
+                    os.path.getmtime(path),
+                    filename
+                )
+            )
+
+        backups.sort(
+            reverse=True
+        )
+
+    except Exception as e:
+
+        await ctx.send(
+            "❌ Could not read backup directory:\n"
+            f"`{e}`"
+        )
+
+        return
+
+    if not backups:
+
+        await ctx.send(
+            "📂 **No donation backups found.**"
+        )
+
+        return
+
+    lines = []
+
+    for index, (
+        timestamp,
+        filename
+    ) in enumerate(
+        backups[:MAX_DONATION_BACKUPS],
+        start=1
+    ):
+
+        date = datetime.fromtimestamp(
+            timestamp
+        ).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+
+        size = os.path.getsize(
+            os.path.join(
+                DONATION_BACKUP_DIR,
+                filename
+            )
+        )
+
+        lines.append(
+            f"{index}. {date} — "
+            f"{size:,} bytes — `{filename}`"
+        )
+
+    chunks = []
+    current = ""
+
+    for line in lines:
+
+        if (
+            len(current)
+            + len(line)
+            + 1
+            > 1800
+        ):
+
+            chunks.append(
+                current
+            )
+
+            current = ""
+
+        current += line + "\n"
+
+    if current:
+
+        chunks.append(
+            current
+        )
+
+    await ctx.send(
+        "🛡️ **DONATION BACKUPS**\n"
+        f"Total available: `{len(backups):,}`"
+    )
+
+    for chunk in chunks:
+
+        await ctx.send(
+            f"```text\n{chunk}```"
+        )
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def restorebackup(
+    ctx,
+    backup_number: int = None
+):
+
+    if backup_number is None:
+
+        await ctx.send(
+            "❌ Usage: `!restorebackup <number>`\n\n"
+            "Run `!listbackups` first."
+        )
+
+        return
+
+    try:
+
+        backups = []
+
+        for filename in os.listdir(
+            DONATION_BACKUP_DIR
+        ):
+
+            if not filename.startswith(
+                "donations_"
+            ):
+                continue
+
+            if not filename.endswith(
+                ".json"
+            ):
+                continue
+
+            path = os.path.join(
+                DONATION_BACKUP_DIR,
+                filename
+            )
+
+            backups.append(
+                (
+                    os.path.getmtime(path),
+                    filename
+                )
+            )
+
+        backups.sort(
+            reverse=True
+        )
+
+    except Exception as e:
+
+        await ctx.send(
+            "❌ Could not read backups:\n"
+            f"`{e}`"
+        )
+
+        return
+
+    if (
+        backup_number < 1
+        or backup_number > len(backups)
+    ):
+
+        await ctx.send(
+            "❌ Invalid backup number.\n\n"
+            f"Available backups: `1-{len(backups)}`"
+        )
+
+        return
+
+    selected_filename = backups[
+        backup_number - 1
+    ][1]
+
+    selected_path = os.path.join(
+        DONATION_BACKUP_DIR,
+        selected_filename
+    )
+
+    # --------------------------------------------------------
+    # READ AND VALIDATE SELECTED BACKUP
+    # --------------------------------------------------------
+
+    try:
+
+        with open(
+            selected_path,
+            "r",
+            encoding="utf-8"
+        ) as f:
+
+            restored_data = json.load(f)
+
+        validate_donation_database(
+            restored_data
+        )
+
+    except Exception as e:
+
+        await ctx.send(
+            "🚨 **BACKUP RESTORE BLOCKED**\n\n"
+            "The selected backup failed validation.\n"
+            f"Error: `{e}`\n\n"
+            "Your current database was NOT changed."
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # BACKUP CURRENT DATABASE BEFORE RESTORING
+    # --------------------------------------------------------
+
+    current_backup = None
+
+    if os.path.exists(
+        DONATIONS_FILE
+    ):
+
+        current_backup = create_donation_backup(
+            reason="before_restore"
+        )
+
+    # --------------------------------------------------------
+    # KEEP CURRENT STATE IN CASE RESTORE FAILS
+    # --------------------------------------------------------
+
+    previous_state = backup_donation_state()
+
+    donations_data.clear()
+
+    donations_data.update(
+        restored_data
+    )
+
+    if not save_donations():
+
+        rollback_donations(
+            previous_state
+        )
+
+        await ctx.send(
+            "🚨 **RESTORE FAILED**\n\n"
+            "The selected backup was valid, but "
+            "the restored database could not be saved.\n\n"
+            "The previous in-memory database was restored.\n"
+            "Your current donations.json should remain intact."
+        )
+
+        return
+
+    await ctx.send(
+        "✅ **DONATION BACKUP RESTORED**\n\n"
+        f"Restored backup:\n"
+        f"`{selected_filename}`\n\n"
+        f"Users: "
+        f"`{len(restored_data['donations']):,}`\n"
+        f"Clan Bank: "
+        f"`{restored_data['clan_bank']:,} gp`\n\n"
+        "The backup file was NOT deleted."
+        + (
+            f"\n\n🛡️ Current database was backed up first:\n"
+            f"`{os.path.basename(current_backup)}`"
+            if current_backup
+            else ""
+        )
+    )
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def donationstatus(ctx):
+
+    file_exists = os.path.exists(
+        DONATIONS_FILE
+    )
+
+    backup_count = 0
+
+    try:
+
+        backup_count = len([
+            f
+            for f in os.listdir(
+                DONATION_BACKUP_DIR
+            )
+            if (
+                f.startswith("donations_")
+                and f.endswith(".json")
+            )
+        ])
+
+    except OSError:
+        pass
+
+    users = donations_data.get(
+        "donations",
+        {}
+    )
+
+    bank = donations_data.get(
+        "clan_bank",
+        0
+    )
+
+    status = (
+        "🟢 HEALTHY"
+        if donation_database_available()
+        else "🔴 PROTECTED / ERROR"
+    )
+
+    await ctx.send(
+        "💾 **DONATION DATABASE STATUS**\n\n"
+        f"Status: **{status}**\n"
+        f"File exists: `{file_exists}`\n"
+        f"Users: `{len(users):,}`\n"
+        f"Clan Bank: `{bank:,} gp`\n"
+        f"Local Backups: `{backup_count:,}`\n"
+        f"Database: `{DONATIONS_FILE}`\n"
+        f"Backup Folder: `{DONATION_BACKUP_DIR}`"
+    )
+
+
+# ============================================================
+# EVENTS
+# ============================================================
 
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user}")
+
+    print(
+        f"Logged in as {bot.user}"
+    )
 
 
 @bot.event
@@ -1063,25 +1919,39 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
-    if message.channel.id not in ALLOWED_CHANNELS:
+    if (
+        message.channel.id
+        not in ALLOWED_CHANNELS
+    ):
+
         return
 
-    await bot.process_commands(message)
+    await bot.process_commands(
+        message
+    )
 
 
-# ================== RAFFLE COMMANDS ==================
+# ============================================================
+# RAFFLE COMMANDS
+# ============================================================
 
 @bot.command()
 @commands.has_permissions(administrator=True)
-async def addt(ctx, *, input: str):
+async def addt(
+    ctx,
+    *,
+    input: str
+):
 
     parts = input.strip().split()
 
     if len(parts) < 2:
+
         await ctx.send(
             "❌ Usage: !addt <name> <tickets> "
             "[<name> <tickets> ...]"
         )
+
         return
 
     summary = []
@@ -1089,20 +1959,26 @@ async def addt(ctx, *, input: str):
 
     while i < len(parts) - 1:
 
-        ticket_str = parts[i + 1]
+        ticket_str = parts[
+            i + 1
+        ]
 
         if not ticket_str.isdigit():
 
             await ctx.send(
-                f"❌ Ticket count must be a number, got: "
-                f"{ticket_str}"
+                f"❌ Ticket count must be a number, "
+                f"got: {ticket_str}"
             )
 
             return
 
-        ticket_count = int(ticket_str)
+        ticket_count = int(
+            ticket_str
+        )
 
-        username_parts = [parts[i]]
+        username_parts = [
+            parts[i]
+        ]
 
         j = i + 1
 
@@ -1112,7 +1988,10 @@ async def addt(ctx, *, input: str):
         ):
 
             j += 1
-            username_parts.append(parts[j])
+
+            username_parts.append(
+                parts[j]
+            )
 
         username = " ".join(
             username_parts
@@ -1149,7 +2028,11 @@ async def addt(ctx, *, input: str):
 
 @bot.command()
 @commands.has_permissions(administrator=True)
-async def removet(ctx, *, input: str):
+async def removet(
+    ctx,
+    *,
+    input: str
+):
 
     parts = input.strip().split()
 
@@ -1167,7 +2050,9 @@ async def removet(ctx, *, input: str):
 
     while i < len(parts) - 1:
 
-        ticket_str = parts[i + 1]
+        ticket_str = parts[
+            i + 1
+        ]
 
         if not ticket_str.isdigit():
 
@@ -1178,9 +2063,13 @@ async def removet(ctx, *, input: str):
 
             return
 
-        ticket_count = int(ticket_str)
+        ticket_count = int(
+            ticket_str
+        )
 
-        username_parts = [parts[i]]
+        username_parts = [
+            parts[i]
+        ]
 
         j = i + 1
 
@@ -1190,7 +2079,10 @@ async def removet(ctx, *, input: str):
         ):
 
             j += 1
-            username_parts.append(parts[j])
+
+            username_parts.append(
+                parts[j]
+            )
 
         username = " ".join(
             username_parts
@@ -1272,7 +2164,9 @@ async def drawwinner(ctx):
         return
 
     winner = random.choices(
-        list(raffle_entries.keys()),
+        list(
+            raffle_entries.keys()
+        ),
         weights=raffle_entries.values(),
         k=1
     )[0]
@@ -1289,6 +2183,7 @@ async def drawwinner(ctx):
 async def reset(ctx):
 
     raffle_entries.clear()
+
     user_display_names.clear()
 
     save_entries()
@@ -1298,7 +2193,9 @@ async def reset(ctx):
     )
 
 
-# ================== PASTE COMMAND ==================
+# ============================================================
+# PASTE COMMAND
+# ============================================================
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -1309,7 +2206,10 @@ async def p(ctx):
     last_batch = []
 
     content = ctx.message.content[
-        len(ctx.prefix + ctx.command.name):
+        len(
+            ctx.prefix
+            + ctx.command.name
+        ):
     ].strip()
 
     lines = content.splitlines()
@@ -1324,10 +2224,14 @@ async def p(ctx):
             continue
 
         if "|" in line:
+
             line = line.split("|")[0].strip()
 
         if " - " in line:
-            line = line.split(" - ")[0].strip()
+
+            line = line.split(
+                " - "
+            )[0].strip()
 
         name = " ".join(
             line.split()
@@ -1343,10 +2247,13 @@ async def p(ctx):
             name = parts[0].strip()
 
             try:
+
                 count = int(
                     parts[1].strip()
                 )
+
             except ValueError:
+
                 count = 1
 
         else:
@@ -1386,14 +2293,19 @@ async def p(ctx):
     )
 
 
-# ================== RESTORE COMMAND ==================
+# ============================================================
+# RESTORE RAFFLE COMMAND
+# ============================================================
 
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def restore(ctx):
 
     content = ctx.message.content[
-        len(ctx.prefix + ctx.command.name):
+        len(
+            ctx.prefix
+            + ctx.command.name
+        ):
     ].strip()
 
     lines = content.splitlines()
@@ -1418,10 +2330,13 @@ async def restore(ctx):
             name = parts[0].strip()
 
             try:
+
                 count = int(
                     parts[1].strip()
                 )
+
             except ValueError:
+
                 count = 1
 
         else:
@@ -1462,7 +2377,9 @@ async def restore(ctx):
     )
 
 
-# ================== REMOVE LAST BATCH ==================
+# ============================================================
+# REMOVE LAST RAFFLE BATCH
+# ============================================================
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -1488,14 +2405,18 @@ async def removele(ctx):
 
             if raffle_entries[key] <= 0:
 
-                raffle_entries.pop(key)
+                raffle_entries.pop(
+                    key
+                )
 
                 user_display_names.pop(
                     key,
                     None
                 )
 
-            summary.append(key)
+            summary.append(
+                key
+            )
 
     save_entries()
 
@@ -1508,7 +2429,9 @@ async def removele(ctx):
     )
 
 
-# ================== DONATION COMMANDS ==================
+# ============================================================
+# DONATION COMMANDS
+# ============================================================
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -1517,6 +2440,9 @@ async def adddn(
     member: discord.Member = None,
     amount: str = None
 ):
+
+    if not await require_donation_database(ctx):
+        return
 
     if not member or not amount:
 
@@ -1528,7 +2454,9 @@ async def adddn(
 
     try:
 
-        value = parse_amount(amount)
+        value = parse_amount(
+            amount
+        )
 
     except ValueError:
 
@@ -1538,16 +2466,36 @@ async def adddn(
 
         return
 
+    previous_state = backup_donation_state()
+
     key = str(member.id)
 
-    donations_data["donations"][key] = (
-        donations_data["donations"].get(key, 0)
+    donations_data[
+        "donations"
+    ][key] = (
+        donations_data[
+            "donations"
+        ].get(key, 0)
         + value
     )
 
-    donations_data["clan_bank"] += value
+    donations_data[
+        "clan_bank"
+    ] += value
 
-    save_donations()
+    if not save_donations():
+
+        rollback_donations(
+            previous_state
+        )
+
+        await ctx.send(
+            "🚨 **Donation NOT saved.**\n"
+            "The change was rolled back because "
+            "the database could not be safely saved."
+        )
+
+        return
 
     total_donated = donations_data[
         "donations"
@@ -1566,7 +2514,10 @@ async def adddn(
                 name=role_name
             )
 
-            if role and role not in member.roles:
+            if (
+                role
+                and role not in member.roles
+            ):
 
                 for _, lower_role_name in DONATION_ROLES:
 
@@ -1587,7 +2538,6 @@ async def adddn(
                             )
 
                         except discord.Forbidden:
-
                             pass
 
                 try:
@@ -1599,7 +2549,6 @@ async def adddn(
                     awarded_role = role.name
 
                 except discord.Forbidden:
-
                     pass
 
             break
@@ -1630,6 +2579,9 @@ async def adddn(
 @commands.has_permissions(administrator=True)
 async def resetd(ctx):
 
+    if not await require_donation_database(ctx):
+        return
+
     if not ctx.message.mentions:
 
         await ctx.send(
@@ -1642,6 +2594,8 @@ async def resetd(ctx):
 
     key = str(member.id)
 
+    previous_state = backup_donation_state()
+
     previous_total = donations_data[
         "donations"
     ].get(key, 0)
@@ -1650,7 +2604,18 @@ async def resetd(ctx):
         "donations"
     ][key] = 0
 
-    save_donations()
+    if not save_donations():
+
+        rollback_donations(
+            previous_state
+        )
+
+        await ctx.send(
+            "🚨 **Donation reset NOT saved.**\n"
+            "The change was rolled back."
+        )
+
+        return
 
     removed_roles = []
 
@@ -1661,7 +2626,10 @@ async def resetd(ctx):
             name=role_name
         )
 
-        if role and role in member.roles:
+        if (
+            role
+            and role in member.roles
+        ):
 
             try:
 
@@ -1674,7 +2642,6 @@ async def resetd(ctx):
                 )
 
             except discord.Forbidden:
-
                 pass
 
     message = (
@@ -1699,7 +2666,11 @@ async def resetd(ctx):
 
 @bot.command()
 @commands.has_permissions(administrator=True)
-async def removetotal(ctx, *, input: str):
+async def removetotal(
+    ctx,
+    *,
+    input: str
+):
 
     parts = input.strip().split()
 
@@ -1718,7 +2689,9 @@ async def removetotal(ctx, *, input: str):
 
     while i < len(parts):
 
-        username_parts = [parts[i]]
+        username_parts = [
+            parts[i]
+        ]
 
         j = i + 1
 
@@ -1737,7 +2710,10 @@ async def removetotal(ctx, *, input: str):
             username_parts
         ).strip()
 
-        if username.lower() in raffle_entries:
+        if (
+            username.lower()
+            in raffle_entries
+        ):
 
             raffle_entries.pop(
                 username.lower()
@@ -1779,6 +2755,9 @@ async def payout(
     description: str = None
 ):
 
+    if not await require_donation_database(ctx):
+        return
+
     if not member or not amount:
 
         await ctx.send(
@@ -1790,7 +2769,9 @@ async def payout(
 
     try:
 
-        value = parse_amount(amount)
+        value = parse_amount(
+            amount
+        )
 
     except ValueError:
 
@@ -1800,7 +2781,12 @@ async def payout(
 
         return
 
-    if donations_data["clan_bank"] < value:
+    if (
+        donations_data[
+            "clan_bank"
+        ]
+        < value
+    ):
 
         await ctx.send(
             "❌ Insufficient funds in the clan bank."
@@ -1808,11 +2794,24 @@ async def payout(
 
         return
 
+    previous_state = backup_donation_state()
+
     donations_data[
         "clan_bank"
     ] -= value
 
-    save_donations()
+    if not save_donations():
+
+        rollback_donations(
+            previous_state
+        )
+
+        await ctx.send(
+            "🚨 **Payout NOT saved.**\n"
+            "The change was rolled back."
+        )
+
+        return
 
     message = (
         f"💸 **Payout Processed**\n"
@@ -1847,6 +2846,9 @@ async def credit(
     description: str = None
 ):
 
+    if not await require_donation_database(ctx):
+        return
+
     if not member or not amount:
 
         await ctx.send(
@@ -1857,7 +2859,9 @@ async def credit(
 
     try:
 
-        value = parse_amount(amount)
+        value = parse_amount(
+            amount
+        )
 
     except ValueError:
 
@@ -1867,16 +2871,31 @@ async def credit(
 
         return
 
+    previous_state = backup_donation_state()
+
     key = str(member.id)
 
     donations_data[
         "donations"
     ][key] = (
-        donations_data["donations"].get(key, 0)
+        donations_data[
+            "donations"
+        ].get(key, 0)
         + value
     )
 
-    save_donations()
+    if not save_donations():
+
+        rollback_donations(
+            previous_state
+        )
+
+        await ctx.send(
+            "🚨 **Donation credit NOT saved.**\n"
+            "The change was rolled back."
+        )
+
+        return
 
     total_donated = donations_data[
         "donations"
@@ -1895,7 +2914,10 @@ async def credit(
                 name=role_name
             )
 
-            if role and role not in member.roles:
+            if (
+                role
+                and role not in member.roles
+            ):
 
                 for _, lower_role_name in DONATION_ROLES:
 
@@ -1916,7 +2938,6 @@ async def credit(
                             )
 
                         except discord.Forbidden:
-
                             pass
 
                 try:
@@ -1928,7 +2949,6 @@ async def credit(
                     awarded_role = role.name
 
                 except discord.Forbidden:
-
                     pass
 
             break
@@ -1971,6 +2991,9 @@ async def setcb(
     amount: str = None
 ):
 
+    if not await require_donation_database(ctx):
+        return
+
     if not amount:
 
         await ctx.send(
@@ -1981,7 +3004,9 @@ async def setcb(
 
     try:
 
-        value = parse_amount(amount)
+        value = parse_amount(
+            amount
+        )
 
     except ValueError:
 
@@ -1991,11 +3016,24 @@ async def setcb(
 
         return
 
+    previous_state = backup_donation_state()
+
     donations_data[
         "clan_bank"
     ] = value
 
-    save_donations()
+    if not save_donations():
+
+        rollback_donations(
+            previous_state
+        )
+
+        await ctx.send(
+            "🚨 **Clan bank change NOT saved.**\n"
+            "The change was rolled back."
+        )
+
+        return
 
     await ctx.send(
         f"💰 **Clan Bank Total Set**\n"
@@ -2023,6 +3061,9 @@ async def addds(
     description: str = None
 ):
 
+    if not await require_donation_database(ctx):
+        return
+
     if not amount:
 
         await ctx.send(
@@ -2033,7 +3074,9 @@ async def addds(
 
     try:
 
-        value = parse_amount(amount)
+        value = parse_amount(
+            amount
+        )
 
     except ValueError:
 
@@ -2043,11 +3086,24 @@ async def addds(
 
         return
 
+    previous_state = backup_donation_state()
+
     donations_data[
         "clan_bank"
     ] += value
 
-    save_donations()
+    if not save_donations():
+
+        rollback_donations(
+            previous_state
+        )
+
+        await ctx.send(
+            "🚨 **Clan bank update NOT saved.**\n"
+            "The change was rolled back."
+        )
+
+        return
 
     hypothetical_role = None
 
@@ -2058,6 +3114,7 @@ async def addds(
         if value >= threshold:
 
             hypothetical_role = role_name
+
             break
 
     message = (
@@ -2096,6 +3153,9 @@ async def setcredit(
     amount: str = None
 ):
 
+    if not await require_donation_database(ctx):
+        return
+
     if not member or not amount:
 
         await ctx.send(
@@ -2106,7 +3166,9 @@ async def setcredit(
 
     try:
 
-        value = parse_amount(amount)
+        value = parse_amount(
+            amount
+        )
 
     except ValueError:
 
@@ -2116,13 +3178,26 @@ async def setcredit(
 
         return
 
+    previous_state = backup_donation_state()
+
     key = str(member.id)
 
     donations_data[
         "donations"
     ][key] = value
 
-    save_donations()
+    if not save_donations():
+
+        rollback_donations(
+            previous_state
+        )
+
+        await ctx.send(
+            "🚨 **Donation total NOT saved.**\n"
+            "The change was rolled back."
+        )
+
+        return
 
     awarded_role = None
 
@@ -2161,7 +3236,6 @@ async def setcredit(
                             )
 
                         except discord.Forbidden:
-
                             pass
 
                 try:
@@ -2173,7 +3247,6 @@ async def setcredit(
                     awarded_role = role.name
 
                 except discord.Forbidden:
-
                     pass
 
             break
@@ -2209,6 +3282,9 @@ async def payoutnd(
     description: str = None
 ):
 
+    if not await require_donation_database(ctx):
+        return
+
     if not name or not amount:
 
         await ctx.send(
@@ -2220,7 +3296,9 @@ async def payoutnd(
 
     try:
 
-        value = parse_amount(amount)
+        value = parse_amount(
+            amount
+        )
 
     except ValueError:
 
@@ -2230,9 +3308,12 @@ async def payoutnd(
 
         return
 
-    if donations_data[
-        "clan_bank"
-    ] < value:
+    if (
+        donations_data[
+            "clan_bank"
+        ]
+        < value
+    ):
 
         await ctx.send(
             "❌ Insufficient funds in the clan bank."
@@ -2240,11 +3321,24 @@ async def payoutnd(
 
         return
 
+    previous_state = backup_donation_state()
+
     donations_data[
         "clan_bank"
     ] -= value
 
-    save_donations()
+    if not save_donations():
+
+        rollback_donations(
+            previous_state
+        )
+
+        await ctx.send(
+            "🚨 **Payout NOT saved.**\n"
+            "The change was rolled back."
+        )
+
+        return
 
     message = (
         f"💸 **Payout Processed "
@@ -2297,15 +3391,72 @@ async def checkud(
     )
 
 
-# ================== ERROR HANDLER ==================
+# ============================================================
+# AMOUNT PARSER
+# ============================================================
+
+def parse_amount(
+    amount: str
+) -> int:
+
+    amount = (
+        amount
+        .lower()
+        .replace(",", "")
+        .strip()
+    )
+
+    if amount.endswith("k"):
+
+        return int(
+            float(
+                amount[:-1]
+            )
+            * 1_000
+        )
+
+    if amount.endswith("m"):
+
+        return int(
+            float(
+                amount[:-1]
+            )
+            * 1_000_000
+        )
+
+    if amount.endswith("b"):
+
+        return int(
+            float(
+                amount[:-1]
+            )
+            * 1_000_000_000
+        )
+
+    if amount.isdigit():
+
+        return int(
+            amount
+        )
+
+    raise ValueError
+
+
+# ============================================================
+# ERROR HANDLER
+# ============================================================
 
 @bot.event
-async def on_command_error(ctx, error):
+async def on_command_error(
+    ctx,
+    error
+):
 
     if isinstance(
         error,
         commands.CommandNotFound
     ):
+
         return
 
     if isinstance(
@@ -2326,7 +3477,20 @@ async def on_command_error(ctx, error):
     )
 
 
-# ================== START BOT ==================
+# ============================================================
+# START BOT
+# ============================================================
 
-bot.run(DISCORD_TOKEN)
+if not DISCORD_TOKEN:
+
+    print(
+        "🚨 ERROR: DISCORD_TOKEN environment "
+        "variable is missing."
+    )
+
+else:
+
+    bot.run(
+        DISCORD_TOKEN
+    )
 
