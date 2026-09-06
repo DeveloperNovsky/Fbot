@@ -250,6 +250,22 @@ async def entries(ctx):
 
 @bot.command()
 @commands.has_permissions(administrator=True)
+async def donationdata(ctx):
+    try:
+        with open(DONATIONS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        await ctx.send(
+            "📄 **Current donations.json:**\n```json\n" +
+            json.dumps(data, indent=2)[:1900] +
+            "\n```"
+        )
+
+    except Exception as e:
+        await ctx.send(f"❌ Error reading donations.json: `{e}`")
+
+@bot.command()
+@commands.has_permissions(administrator=True)
 async def drawwinner(ctx):
     if not raffle_entries:
         await ctx.send("No entries.")
